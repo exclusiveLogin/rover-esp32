@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: .
+  Remove:
+    - -mfix-esp32-psram-cache-issue
+    - -mlongcalls
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -mtext-section-literals
+    - -ffunction-sections
+    - -fdata-sections
+
+Diagnostics:
+  Suppress:
+    - pp_including_mainfile_in_preamble

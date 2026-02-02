@@ -1,0 +1,31 @@
+{
+  "name": "esp32-cam-rover",
+  "version": "1.0.0",
+  "description": "ESP32-CAM Rover with MJPEG streaming",
+  "private": true,
+  "config": {
+    "pio": "/home/serenity/.platformio/penv/bin/pio"
+  },
+  "scripts": {
+    "build": "$npm_package_config_pio run",
+    "upload": "$npm_package_config_pio run --target upload",
+    "fs:build": "$npm_package_config_pio run --target buildfs",
+    "fs:upload": "$npm_package_config_pio run --target uploadfs",
+    "fs:clean-upload": "npm run erase:all && npm run deploy",
+    "fs:size": "du -sh .pio/build/esp32cam/spiffs.bin 2>/dev/null || echo 'Сначала: npm run fs:build'",
+    "deploy": "$npm_package_config_pio run --target uploadfs && $npm_package_config_pio run --target upload",
+    "deploy:clean": "npm run erase:all && npm run deploy",
+    "erase:all": "$npm_package_config_pio run --target erase",
+    "monitor": "$npm_package_config_pio device monitor",
+    "clean": "$npm_package_config_pio run --target clean",
+    "clean:full": "$npm_package_config_pio run --target fullclean",
+    "check": "$npm_package_config_pio check",
+    "devices": "$npm_package_config_pio device list",
+    "upload:monitor": "$npm_package_config_pio run --target upload && $npm_package_config_pio device monitor",
+    "doctor": "$npm_package_config_pio system info",
+    "ide:fix": "$npm_package_config_pio run -t compiledb && $npm_package_config_pio init --ide vscode"
+  },
+  "keywords": ["esp32", "esp32-cam", "platformio", "mjpeg"],
+  "author": "",
+  "license": "MIT"
+}

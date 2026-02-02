@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" fill="#1a202c" rx="4"/>
+  
+  <!-- Плата ESP32 -->
+  <rect x="6" y="18" width="20" height="10" fill="#2d5016" rx="1"/>
+  <rect x="8" y="20" width="3" height="2" fill="#c6c6c6"/>
+  <rect x="12" y="20" width="3" height="2" fill="#c6c6c6"/>
+  <rect x="16" y="20" width="3" height="2" fill="#c6c6c6"/>
+  <rect x="20" y="20" width="3" height="2" fill="#c6c6c6"/>
+  <rect x="10" y="24" width="2" height="2" fill="#ffd700"/>
+  <rect x="20" y="24" width="2" height="2" fill="#ffd700"/>
+  
+  <!-- Морда лисы -->
+  <circle cx="16" cy="10" r="7" fill="#ed8936"/>
+  
+  <!-- Уши -->
+  <path d="M 10 7 L 8 2 L 12 6 Z" fill="#ed8936"/>
+  <path d="M 22 7 L 24 2 L 20 6 Z" fill="#ed8936"/>
+  <path d="M 10 6 L 9 3 L 11 6 Z" fill="#2d3748"/>
+  <path d="M 22 6 L 23 3 L 21 6 Z" fill="#2d3748"/>
+  
+  <!-- Белая морда -->
+  <ellipse cx="16" cy="12" rx="5" ry="4" fill="#fff"/>
+  
+  <!-- Глаза -->
+  <circle cx="13.5" cy="10" r="1.5" fill="#2d3748"/>
+  <circle cx="18.5" cy="10" r="1.5" fill="#2d3748"/>
+  <circle cx="14" cy="9.5" r="0.5" fill="#fff"/>
+  <circle cx="19" cy="9.5" r="0.5" fill="#fff"/>
+  
+  <!-- Нос -->
+  <circle cx="16" cy="13" r="1" fill="#2d3748"/>
+</svg>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>ESP32-CAM Rover</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <img src="/logo.svg" alt="Logo" width="32" height="32">
+    </div>
+    <h1>ESP32-CAM Rover</h1>
+    <div class="status" id="connection-status">
+      <span class="dot"></span>
+      <span class="text">Подключение...</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Видео панель -->
+    <div class="video-panel">
+      <div class="video-container">
+        <img id="video-feed" alt="Video Feed">
+        <div class="video-overlay" id="video-overlay">
+          <div class="loader"></div>
+          <span>Загрузка стрима...</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="stream-toggle" class="btn primary">
+          <span class="icon">▶</span> Стрим
+        </button>
+        <button id="photo-btn" class="btn secondary">
+          <span class="icon">📷</span> Фото
+        </button>
+        <button id="led-btn" class="btn led">
+          <span class="icon">💡</span> LED
+        </button>
+      </div>
+    </div>
+
+    <!-- Информация -->
+    <div class="info-panel">
+      <div class="info-item">
+        <span class="label">Стрим URL</span>
+        <code id="stream-url">—</code>
+      </div>
+      <div class="info-item">
+        <span class="label">Статус</span>
+        <span id="stream-status">Остановлен</span>
+      </div>
+    </div>
+
+    <!-- Управление моторами -->
+    <div class="drive-panel">
+      <h2>🚗 Управление моторами</h2>
+      
+      <div class="motors-grid">
+        <!-- Front Left -->
+        <div class="motor-control" data-motor="fl">
+          <span class="motor-label">FL</span>
+          <div class="motor-buttons">
+            <button class="btn-motor inc" data-action="increment">+</button>
+            <button class="btn-motor dec" data-action="decrement">−</button>
+          </div>
+          <div class="motor-bar">
+            <div class="motor-bar-fill" id="bar-fl"></div>
+          </div>
+          <span class="motor-value" id="val-fl">0</span>
+        </div>
+
+        <!-- Front Right -->
+        <div class="motor-control" data-motor="fr">
+          <span class="motor-label">FR</span>
+          <div class="motor-buttons">
+            <button class="btn-motor inc" data-action="increment">+</button>
+            <button class="btn-motor dec" data-action="decrement">−</button>
+          </div>
+          <div class="motor-bar">
+            <div class="motor-bar-fill" id="bar-fr"></div>
+          </div>
+          <span class="motor-value" id="val-fr">0</span>
+        </div>
+
+        <!-- Rear Left -->
+        <div class="motor-control" data-motor="rl">
+          <span class="motor-label">RL</span>
+          <div class="motor-buttons">
+            <button class="btn-motor inc" data-action="increment">+</button>
+            <button class="btn-motor dec" data-action="decrement">−</button>
+          </div>
+          <div class="motor-bar">
+            <div class="motor-bar-fill" id="bar-rl"></div>
+          </div>
+          <span class="motor-value" id="val-rl">0</span>
+        </div>
+
+        <!-- Rear Right -->
+        <div class="motor-control" data-motor="rr">
+          <span class="motor-label">RR</span>
+          <div class="motor-buttons">
+            <button class="btn-motor inc" data-action="increment">+</button>
+            <button class="btn-motor dec" data-action="decrement">−</button>
+          </div>
+          <div class="motor-bar">
+            <div class="motor-bar-fill" id="bar-rr"></div>
+          </div>
+          <span class="motor-value" id="val-rr">0</span>
+        </div>
+      </div>
+
+      <button id="stop-all" class="btn stop-btn">🛑 STOP ALL</button>
+    </div>
+  </main>
+
+  <footer>
+    <p>ESP32-CAM Rover © 2026</p>
+  </footer>
+
+  <script src="/script.js"></script>
+</body>
+</html>
