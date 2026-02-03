@@ -114,6 +114,51 @@
 
       <button id="stop-all" class="btn stop-btn">🛑 STOP ALL</button>
     </div>
+
+    <!-- Виртуальный джойстик -->
+    <div class="joystick-panel">
+      <h2>🎮 Джойстик</h2>
+      
+      <div class="joystick-container">
+        <!-- Область джойстика -->
+        <div class="joystick-area" id="joystick-area">
+          <!-- Внешний круг (зона движения) -->
+          <div class="joystick-base">
+            <!-- Ручка джойстика -->
+            <div class="joystick-stick" id="joystick-stick"></div>
+          </div>
+          <!-- Перекрестие -->
+          <div class="joystick-crosshair"></div>
+        </div>
+        
+        <!-- Индикаторы осей -->
+        <div class="joystick-info">
+          <div class="axis-display">
+            <span class="axis-label">X:</span>
+            <span class="axis-value" id="joy-x">0</span>
+          </div>
+          <div class="axis-display">
+            <span class="axis-label">Y:</span>
+            <span class="axis-value" id="joy-y">0</span>
+          </div>
+          <div class="axis-display">
+            <span class="axis-label">⏱️</span>
+            <span class="axis-value" id="joy-active">—</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Быстрые кнопки направлений -->
+      <div class="direction-buttons">
+        <button class="dir-btn" data-dir="forward">⬆️</button>
+        <div class="dir-row">
+          <button class="dir-btn" data-dir="left">⬅️</button>
+          <button class="dir-btn stop" data-dir="stop">⏹️</button>
+          <button class="dir-btn" data-dir="right">➡️</button>
+        </div>
+        <button class="dir-btn" data-dir="backward">⬇️</button>
+      </div>
+    </div>
   </main>
 
   <footer>

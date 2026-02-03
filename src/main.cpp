@@ -5,6 +5,7 @@
 #include "config.h"
 #include "camera.h"
 #include "drive.h"
+#include "control.h"   // Модуль управления с watchdog таймаутом
 #include "webserver.h"
 
 // ============================================================
@@ -22,6 +23,9 @@ void setup() {
     // PWM / моторы
     driveInit();
     Serial.println("✅ PWM инициализирован");
+
+    // Модуль управления с watchdog
+    controlInit();
 
     // SPIFFS
     if (!SPIFFS.begin(true)) {
@@ -66,15 +70,22 @@ void setup() {
     Serial.printf("📹 Стрим:     http://%s:%d/stream\n", WiFi.localIP().toString().c_str(), HTTP_PORT_STREAM);
     Serial.printf("📷 Фото:      http://%s/photo\n", WiFi.localIP().toString().c_str());
     Serial.printf("💡 LED:       http://%s/led\n", WiFi.localIP().toString().c_str());
-    Serial.printf("🚗 Drive API: http://%s/api/drive\n", WiFi.localIP().toString().c_str());
+    Serial.printf("🔧 Drive API:   http://%s/api/drive   (отладка)\n", WiFi.localIP().toString().c_str());
+    Serial.printf("🎮 Control API: http://%s/api/control (с watchdog)\n", WiFi.localIP().toString().c_str());
     Serial.println("========================================\n");
 }
 
 void loop() {
-    // Демо движений (удалить при реальном управлении)
-    driveDemoUpdate();
+    // =========================================================
+    // 🎮 Watchdog управления — ОБЯЗАТЕЛЬНО вызывать!
+    // Проверяет таймаут и останавливает моторы если нет команд
+    // =========================================================
+    controlUpdate();
 
-    // Проверка WiFi
+    // Демо движений (удалить при реальном управлении)
+    // driveDemoUpdate();
+
+    // Проверка WiFi (раз в 10 сек)
     static unsigned long lastWifiCheck = 0;
     if (millis() - lastWifiCheck >= 10000) {
         lastWifiCheck = millis();
@@ -84,5 +95,6 @@ void loop() {
         }
     }
 
+    // ~50 Гц цикл для плавного управления
     vTaskDelay(pdMS_TO_TICKS(20));
 }

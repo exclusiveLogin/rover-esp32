@@ -2,6 +2,7 @@
 #include "config.h"
 #include "camera.h"
 #include "drive.h"
+#include "control.h"  // Модуль управления с watchdog
 #include <esp_http_server.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
@@ -187,6 +188,132 @@ static esp_err_t driveApiHandler(httpd_req_t* req) {
 }
 
 // ============================================================
+// 🎮 Control API — /api/control (с Watchdog таймаутом)
+// ============================================================
+//
+// Этот эндпоинт для "живого" управления (джойстик, стики).
+// В отличие от /api/drive (отладочный), здесь:
+//   - Watchdog таймаут: моторы остановятся если нет команд
+//   - Поддержка X/Y координат джойстика
+//   - Упрощённые команды направления
+//
+// POST /api/control
+// {
+//   "type": "direction" | "xy" | "stop",
+//   "direction": "forward" | "backward" | "left" | "right" | "rotate_left" | "rotate_right",
+//   "speed": 0-255,
+//   "x": -255..+255,  // для type: "xy"
+//   "y": -255..+255   // для type: "xy"
+// }
+//
+// GET /api/control — текущее состояние
+//
+// ============================================================
+
+static esp_err_t controlApiHandler(httpd_req_t* req) {
+    // --- CORS preflight ---
+    if (req->method == HTTP_OPTIONS) {
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+        httpd_resp_send(req, NULL, 0);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+
+    // --- GET: вернуть состояние управления ---
+    if (req->method == HTTP_GET) {
+        const ControlState& st = controlGetState();
+        const DriveState& drv = driveGetState();
+        
+        // Формируем JSON с полным состоянием
+        char json[256];
+        snprintf(json, sizeof(json), 
+            "{"
+            "\"active\":%s,"
+            "\"direction\":%d,"
+            "\"speed\":%d,"
+            "\"motors\":{\"fl\":%d,\"fr\":%d,\"rl\":%d,\"rr\":%d},"
+            "\"timeout_ms\":%d"
+            "}",
+            st.active ? "true" : "false",
+            st.direction,
+            st.speed,
+            drv.speed[MOTOR_FL], drv.speed[MOTOR_FR],
+            drv.speed[MOTOR_RL], drv.speed[MOTOR_RR],
+            CONTROL_TIMEOUT_MS
+        );
+        return httpd_resp_send(req, json, strlen(json));
+    }
+
+    // --- POST: команда управления ---
+    char body[256];
+    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    body[len] = '\0';
+
+    // Парсинг JSON
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const char* type = doc["type"] | "stop";
+    
+    // --- Тип: stop ---
+    if (strcmp(type, "stop") == 0) {
+        controlStop();
+    }
+    // --- Тип: direction (направление + скорость) ---
+    else if (strcmp(type, "direction") == 0) {
+        const char* dir = doc["direction"] | "stop";
+        uint8_t speed = doc["speed"] | 200;
+        
+        ControlDirection direction = CTRL_STOP;
+        if (strcmp(dir, "forward") == 0)       direction = CTRL_FORWARD;
+        else if (strcmp(dir, "backward") == 0) direction = CTRL_BACKWARD;
+        else if (strcmp(dir, "left") == 0)     direction = CTRL_LEFT;
+        else if (strcmp(dir, "right") == 0)    direction = CTRL_RIGHT;
+        else if (strcmp(dir, "rotate_left") == 0)  direction = CTRL_ROTATE_LEFT;
+        else if (strcmp(dir, "rotate_right") == 0) direction = CTRL_ROTATE_RIGHT;
+        
+        controlSetMovement(direction, speed);
+    }
+    // --- Тип: xy (джойстик) ---
+    else if (strcmp(type, "xy") == 0) {
+        int16_t x = doc["x"] | 0;
+        int16_t y = doc["y"] | 0;
+        controlSetXY(x, y);
+    }
+
+    // Возвращаем обновлённое состояние
+    const ControlState& st = controlGetState();
+    const DriveState& drv = driveGetState();
+    char json[256];
+    snprintf(json, sizeof(json), 
+        "{"
+        "\"active\":%s,"
+        "\"direction\":%d,"
+        "\"speed\":%d,"
+        "\"motors\":{\"fl\":%d,\"fr\":%d,\"rl\":%d,\"rr\":%d}"
+        "}",
+        st.active ? "true" : "false",
+        st.direction,
+        st.speed,
+        drv.speed[MOTOR_FL], drv.speed[MOTOR_FR],
+        drv.speed[MOTOR_RL], drv.speed[MOTOR_RR]
+    );
+    return httpd_resp_send(req, json, strlen(json));
+}
+
+// ============================================================
 // 📁 Статика (SPIFFS)
 // ============================================================
 
@@ -279,21 +406,34 @@ void webserverStartMain() {
     httpd_register_uri_handler(mainHttpd, &uriLogo);
     httpd_register_uri_handler(mainHttpd, &uriFavicon);
 
-    // API
+    // API — отладка
     httpd_uri_t uriPhoto      = {"/photo",      HTTP_GET,  photoHandler,    NULL};
     httpd_uri_t uriLedGet     = {"/led",        HTTP_GET,  ledHandler,      NULL};
     httpd_uri_t uriLedToggle  = {"/led/toggle", HTTP_POST, ledHandler,      NULL};
+    
+    // API — /api/drive (отладочный: increment/decrement, БЕЗ таймаута)
     httpd_uri_t uriDriveGet   = {"/api/drive",  HTTP_GET,  driveApiHandler, NULL};
     httpd_uri_t uriDrivePost  = {"/api/drive",  HTTP_POST, driveApiHandler, NULL};
     httpd_uri_t uriDriveOpts  = {"/api/drive",  HTTP_OPTIONS, driveApiHandler, NULL};
+    
+    // API — /api/control (живое управление: джойстик, С таймаутом watchdog)
+    httpd_uri_t uriCtrlGet    = {"/api/control", HTTP_GET,  controlApiHandler, NULL};
+    httpd_uri_t uriCtrlPost   = {"/api/control", HTTP_POST, controlApiHandler, NULL};
+    httpd_uri_t uriCtrlOpts   = {"/api/control", HTTP_OPTIONS, controlApiHandler, NULL};
+    
     httpd_register_uri_handler(mainHttpd, &uriPhoto);
     httpd_register_uri_handler(mainHttpd, &uriLedGet);
     httpd_register_uri_handler(mainHttpd, &uriLedToggle);
     httpd_register_uri_handler(mainHttpd, &uriDriveGet);
     httpd_register_uri_handler(mainHttpd, &uriDrivePost);
     httpd_register_uri_handler(mainHttpd, &uriDriveOpts);
+    httpd_register_uri_handler(mainHttpd, &uriCtrlGet);
+    httpd_register_uri_handler(mainHttpd, &uriCtrlPost);
+    httpd_register_uri_handler(mainHttpd, &uriCtrlOpts);
 
     Serial.printf("🌐 Основной сервер на порту %d, Core %d\n", HTTP_PORT_MAIN, xPortGetCoreID());
+    Serial.println("   📡 /api/drive   — отладка (без таймаута)");
+    Serial.println("   🎮 /api/control — управление (с watchdog)");
 }
 
 void webserverStartStream() {
