@@ -28,6 +28,7 @@ class ControlService {
     throttleMs: 1000,         // Throttle: heartbeat раз в 1 сек (меньше CONTROL_TIMEOUT_MS 2 сек)
     deadzone: 20,             // Мёртвая зона для X/Y
     maxValue: 255,            // Максимальное значение X/Y
+    expo: 0,                  // Expo кривая: -1..+1 (0 = линейная)
   };
 
   constructor(apiUrl = ControlService.DEFAULTS.apiUrl, options = {}) {
@@ -247,7 +248,11 @@ class ControlService {
     
     const thisRequestId = ++this._requestId;
     
-    // Обновляем lastSent ДО запроса
+    // Применяем expo кривую
+    const expoX = this._applyExpo(x);
+    const expoY = this._applyExpo(y);
+    
+    // Обновляем lastSent ДО запроса (сырые значения)
     this._updateState({
       lastSentX: x,
       lastSentY: y,
@@ -259,7 +264,7 @@ class ControlService {
     fetch(this.config.apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'xy', x, y }),
+      body: JSON.stringify({ type: 'xy', x: expoX, y: expoY }),
       signal: this._abortController.signal,
     })
       .then(r => r.json())
@@ -311,10 +316,95 @@ class ControlService {
 
   /**
    * Map значение из одного диапазона в другой
-   * (пока не используется, но готово для расширения)
    */
   _map(value, inMin, inMax, outMin, outMax) {
     return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+  }
+
+  /**
+   * Применить expo кривую к значению
+   * 
+   * Формула: output = (1 - |expo|) * input + expo * input^3
+   * 
+   * expo > 0: мягкий центр, резкие края (для точного управления)
+   * expo < 0: резкий центр, мягкие края (для быстрого отклика)
+   * expo = 0: линейная кривая
+   * 
+   * @param {number} value - Входное значение (-255..+255)
+   * @returns {number} - Обработанное значение
+   */
+  _applyExpo(value) {
+    const expo = this.config.expo;
+    if (expo === 0) return value;
+    
+    // Нормализуем в -1..+1
+    const maxVal = this.config.maxValue;
+    const normalized = value / maxVal;
+    
+    // Применяем expo: mix линейной и кубической функций
+    const absExpo = Math.abs(expo);
+    const cubic = normalized * normalized * normalized;
+    
+    let result;
+    if (expo > 0) {
+      // Положительный expo: мягкий центр (кубическая доминирует)
+      result = (1 - absExpo) * normalized + absExpo * cubic;
+    } else {
+      // Отрицательный expo: резкий центр (инверсия кубической)
+      // Используем sqrt для обратного эффекта
+      const sign = normalized >= 0 ? 1 : -1;
+      const absNorm = Math.abs(normalized);
+      const sqrtPart = sign * Math.pow(absNorm, 1/3);
+      result = (1 - absExpo) * normalized + absExpo * sqrtPart;
+    }
+    
+    // Возвращаем в исходный диапазон
+    return Math.round(result * maxVal);
+  }
+
+  // ============================================================
+  // Public: Settings
+  // ============================================================
+
+  /**
+   * Установить expo кривую
+   * @param {number} expo - Значение от -1 до +1 (или -100..+100, будет нормализовано)
+   */
+  setExpo(expo) {
+    // Нормализуем если передано в процентах
+    if (expo > 1 || expo < -1) {
+      expo = expo / 100;
+    }
+    expo = this._clamp(expo, -1, 1);
+    this.config.expo = expo;
+    console.log(`📈 Expo set to ${(expo * 100).toFixed(0)}%`);
+  }
+
+  /**
+   * Получить текущий expo
+   */
+  getExpo() {
+    return this.config.expo;
+  }
+
+  /**
+   * Вычислить expo для графика (статический метод)
+   * @param {number} input - Нормализованный вход 0..1
+   * @param {number} expo - Expo -1..+1
+   * @returns {number} - Нормализованный выход 0..1
+   */
+  static calcExpoPoint(input, expo) {
+    if (expo === 0) return input;
+    
+    const absExpo = Math.abs(expo);
+    const cubic = input * input * input;
+    
+    if (expo > 0) {
+      return (1 - absExpo) * input + absExpo * cubic;
+    } else {
+      const sqrtPart = Math.pow(input, 1/3);
+      return (1 - absExpo) * input + absExpo * sqrtPart;
+    }
   }
 }
 

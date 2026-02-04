@@ -93,6 +93,38 @@
       </div>
     </div>
 
+    <!-- Настройки управления -->
+    <div class="settings-panel">
+      <h2>⚙️ Настройки</h2>
+      
+      <!-- Режим джойстиков -->
+      <div class="setting-row">
+        <span class="setting-label">Джойстики</span>
+        <div class="toggle-switch">
+          <button class="toggle-btn active" data-mode="dual">Раздельные</button>
+          <button class="toggle-btn" data-mode="single">Объединённый</button>
+        </div>
+      </div>
+
+      <!-- Expo кривая -->
+      <div class="setting-row">
+        <span class="setting-label">Expo</span>
+        <div class="expo-control">
+          <input type="range" id="expo-slider" min="-100" max="100" value="0" step="5">
+          <span class="expo-value" id="expo-value">0%</span>
+        </div>
+      </div>
+
+      <!-- График expo -->
+      <div class="expo-graph-container">
+        <canvas id="expo-graph" width="150" height="150"></canvas>
+        <div class="expo-labels">
+          <span class="label-linear">Линейная</span>
+          <span class="label-expo" id="expo-label">—</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Управление моторами -->
     <div class="drive-panel">
       <h2>🚗 Управление моторами</h2>

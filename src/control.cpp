@@ -136,10 +136,13 @@ void controlSetXY(int16_t x, int16_t y) {
     int16_t rightSpeed = y - x;
     
     // Нормализация: если значения выходят за 255, масштабируем
+    // Важно: сохраняем знак при нормализации!
     int16_t maxVal = max(abs(leftSpeed), abs(rightSpeed));
     if (maxVal > 255) {
-        leftSpeed  = leftSpeed  * 255 / maxVal;
-        rightSpeed = rightSpeed * 255 / maxVal;
+        // Используем float для точного деления, затем округляем
+        float scale = 255.0f / maxVal;
+        leftSpeed  = (int16_t)(leftSpeed * scale);
+        rightSpeed = (int16_t)(rightSpeed * scale);
     }
     
     // --- Применяем к моторам ---
@@ -152,7 +155,7 @@ void controlSetXY(int16_t x, int16_t y) {
         driveSetSpeed(MOTOR_RL, 0);
     } else {
         driveSetSpeed(MOTOR_FL, 0);
-        driveSetSpeed(MOTOR_RL, (uint8_t)(-leftSpeed));
+        driveSetSpeed(MOTOR_RL, (uint8_t)(-leftSpeed));  // Инвертируем знак
     }
     
     // Правая сторона (FR для вперёд, RR для назад)
@@ -161,8 +164,14 @@ void controlSetXY(int16_t x, int16_t y) {
         driveSetSpeed(MOTOR_RR, 0);
     } else {
         driveSetSpeed(MOTOR_FR, 0);
-        driveSetSpeed(MOTOR_RR, (uint8_t)(-rightSpeed));
+        driveSetSpeed(MOTOR_RR, (uint8_t)(-rightSpeed));  // Инвертируем знак
     }
+    
+    // Отладка (раскомментировать для проверки)
+    Serial.printf("XY: x=%d y=%d | L=%d R=%d | FL=%d FR=%d RL=%d RR=%d\n",
+        x, y, leftSpeed, rightSpeed,
+        driveGetSpeed(MOTOR_FL), driveGetSpeed(MOTOR_FR),
+        driveGetSpeed(MOTOR_RL), driveGetSpeed(MOTOR_RR));
     
     // Сохраняем примерное направление для отладки
     if (abs(y) > abs(x)) {

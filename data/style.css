@@ -256,6 +256,150 @@ main {
   font-size: 0.85rem;
 }
 
+/* ============================================================
+   ⚙️ SETTINGS PANEL
+   ============================================================ */
+
+.settings-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+}
+
+.settings-panel h2 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.setting-label {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+/* Переключатель режимов */
+.toggle-switch {
+  display: flex;
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.toggle-btn {
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.toggle-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Expo slider */
+.expo-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 200px;
+}
+
+#expo-slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+}
+
+#expo-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+#expo-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.expo-value {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.8rem;
+  color: var(--accent);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* Expo graph */
+.expo-graph-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+}
+
+#expo-graph {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.expo-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.label-linear {
+  color: var(--text-secondary);
+}
+
+.label-linear::before {
+  content: '—';
+  color: rgba(255, 255, 255, 0.3);
+  margin-right: 6px;
+}
+
+.label-expo {
+  color: var(--accent);
+}
+
+.label-expo::before {
+  content: '—';
+  color: var(--accent);
+  margin-right: 6px;
+}
+
 /* === Drive Panel === */
 .drive-panel {
   margin-top: 16px;
@@ -618,6 +762,77 @@ main {
   
   .joystick-label .axis-name {
     display: none;  /* Скрываем текст на маленьких экранах */
+  }
+}
+
+/* ============================================================
+   🎮 SINGLE JOYSTICK MODE
+   ============================================================ */
+
+.joystick-wrapper.hidden {
+  display: none;
+}
+
+/* Когда включён single mode — правый джойстик увеличиваем и центрируем */
+.joysticks-overlay.single-mode {
+  justify-content: center;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right {
+  /* Увеличенный размер для XY управления */
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-area {
+  width: 160px;
+  height: 160px;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-stick {
+  width: 60px;
+  height: 60px;
+}
+
+/* Убираем rail (направляющую) в XY режиме */
+.joysticks-overlay.single-mode .joystick-rail {
+  display: none;
+}
+
+/* Добавляем перекрестие вместо rail */
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::before,
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::after {
+  content: '';
+  position: absolute;
+  background: rgba(74, 158, 255, 0.2);
+  pointer-events: none;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::before {
+  /* Вертикальная линия */
+  left: 50%;
+  top: 15%;
+  bottom: 15%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::after {
+  /* Горизонтальная линия */
+  top: 50%;
+  left: 15%;
+  right: 15%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+@media (min-width: 768px) {
+  .joysticks-overlay.single-mode .joystick-wrapper.right .joystick-area {
+    width: 200px;
+    height: 200px;
+  }
+  
+  .joysticks-overlay.single-mode .joystick-wrapper.right .joystick-stick {
+    width: 70px;
+    height: 70px;
   }
 }
 

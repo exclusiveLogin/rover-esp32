@@ -365,9 +365,14 @@
     joy.active = true;
     joy.stick.classList.add('active');
 
-    // Обновляем позицию
-    const value = getJoyValue(e, side);
-    applyJoyValue(side, value);
+    // Обновляем позицию (учитываем режим XY или одноосевой)
+    if (joy.axis === 'xy') {
+      const xy = getJoyValueXY(e, side);
+      applyJoyValueXY(side, xy.x, xy.y);
+    } else {
+      const value = getJoyValue(e, side);
+      applyJoyValue(side, value);
+    }
 
     // Mouse события на document
     if (!e.touches) {
@@ -390,8 +395,13 @@
     if (!joy.active) return;
     e.preventDefault();
 
-    const value = getJoyValue(e, side);
-    applyJoyValue(side, value);
+    if (joy.axis === 'xy') {
+      const xy = getJoyValueXY(e, side);
+      applyJoyValueXY(side, xy.x, xy.y);
+    } else {
+      const value = getJoyValue(e, side);
+      applyJoyValue(side, value);
+    }
   }
 
   /**
@@ -417,22 +427,31 @@
     joy.stick.classList.remove('active');
 
     // Сброс позиции
-    applyJoyValue(side, 0);
-
-    // Сброс в ControlService
-    if (joy.axis === 'x') {
-      controlService.resetX();
+    if (joy.axis === 'xy') {
+      applyJoyValueXY(side, 0, 0);
+      controlService.deactivate();
     } else {
-      controlService.resetY();
+      applyJoyValue(side, 0);
+      if (joy.axis === 'x') {
+        controlService.resetX();
+      } else {
+        controlService.resetY();
+      }
     }
   }
 
   /**
-   * Получение значения из события
+   * Получение значения из события (одноосевой)
    */
   function getJoyValue(e, side) {
     const joy = joysticks[side];
     const rect = joy.area.getBoundingClientRect();
+    
+    // Для XY режима используем отдельную функцию
+    if (joy.axis === 'xy') {
+      return getJoyValueXY(e, side);
+    }
+    
     const center = joy.axis === 'y' 
       ? rect.top + rect.height / 2
       : rect.left + rect.width / 2;
@@ -440,7 +459,6 @@
     // Координата из события
     let pos;
     if (e.touches) {
-      // Находим наш тач
       for (const touch of e.touches) {
         if (touch.identifier === joy.touchId) {
           pos = joy.axis === 'y' ? touch.clientY : touch.clientX;
@@ -462,12 +480,52 @@
       delta = delta > 0 ? joy.radius : -joy.radius;
     }
 
-    // Нормализация в -255..+255
     return Math.round((delta / joy.radius) * 255);
   }
 
   /**
-   * Применение значения к джойстику
+   * Получение XY из события (двухосевой)
+   */
+  function getJoyValueXY(e, side) {
+    const joy = joysticks[side];
+    const rect = joy.area.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    let clientX, clientY;
+    if (e.touches) {
+      for (const touch of e.touches) {
+        if (touch.identifier === joy.touchId) {
+          clientX = touch.clientX;
+          clientY = touch.clientY;
+          break;
+        }
+      }
+      if (clientX === undefined) return { x: 0, y: 0 };
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    let deltaX = clientX - centerX;
+    let deltaY = centerY - clientY;  // Y инвертирован
+
+    // Ограничение радиусом
+    const dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    if (dist > joy.radius) {
+      const scale = joy.radius / dist;
+      deltaX *= scale;
+      deltaY *= scale;
+    }
+
+    return {
+      x: Math.round((deltaX / joy.radius) * 255),
+      y: Math.round((deltaY / joy.radius) * 255),
+    };
+  }
+
+  /**
+   * Применение значения к джойстику (одноосевой)
    */
   function applyJoyValue(side, value) {
     const joy = joysticks[side];
@@ -488,6 +546,23 @@
     } else {
       controlService.setY(value);
     }
+  }
+
+  /**
+   * Применение XY значения к джойстику (двухосевой)
+   */
+  function applyJoyValueXY(side, x, y) {
+    const joy = joysticks[side];
+
+    // Визуальное перемещение ручки
+    const pixelX = (x / 255) * joy.radius;
+    const pixelY = -(y / 255) * joy.radius;  // Y инвертирован для CSS
+
+    joy.stick.style.left = `calc(50% + ${pixelX}px)`;
+    joy.stick.style.top = `calc(50% + ${pixelY}px)`;
+
+    // Отправка в ControlService
+    controlService.setXY(x, y);
   }
 
   /**
@@ -542,10 +617,183 @@
     }
   }
 
+  // ============================================================
+  // ⚙️ SETTINGS — Настройки управления
+  // ============================================================
+
+  let expoCanvas = null;
+  let expoCtx = null;
+
+  /**
+   * Инициализация настроек
+   */
+  function initSettings() {
+    // === Переключатель режимов ===
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        setJoystickMode(mode);
+        
+        // UI
+        document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // === Expo slider ===
+    const slider = document.getElementById('expo-slider');
+    const valueEl = document.getElementById('expo-value');
+    const labelEl = document.getElementById('expo-label');
+    
+    if (slider) {
+      slider.addEventListener('input', () => {
+        const value = parseInt(slider.value);
+        
+        // Обновляем UI
+        if (valueEl) valueEl.textContent = `${value}%`;
+        if (labelEl) {
+          if (value > 0) {
+            labelEl.textContent = 'Мягкий центр';
+          } else if (value < 0) {
+            labelEl.textContent = 'Резкий центр';
+          } else {
+            labelEl.textContent = '—';
+          }
+        }
+        
+        // Применяем к ControlService
+        if (controlService) {
+          controlService.setExpo(value);
+        }
+        
+        // Перерисовываем график
+        drawExpoGraph(value / 100);
+      });
+    }
+
+    // === Инициализация canvas для графика ===
+    expoCanvas = document.getElementById('expo-graph');
+    if (expoCanvas) {
+      expoCtx = expoCanvas.getContext('2d');
+      drawExpoGraph(0);
+    }
+
+    console.log('⚙️ Settings initialized');
+  }
+
+  /**
+   * Переключение режима джойстиков
+   */
+  function setJoystickMode(mode) {
+    const overlay = document.getElementById('joysticks-overlay');
+    if (!overlay) return;
+
+    // Находим wrapper'ы
+    const leftWrapper = joysticks.left.area?.parentElement;
+    const rightWrapper = joysticks.right.area?.parentElement;
+    const rightLabel = rightWrapper?.querySelector('.joystick-label');
+
+    if (mode === 'single') {
+      // Скрываем левый джойстик, делаем правый полноценным XY
+      overlay.classList.add('single-mode');
+      leftWrapper?.classList.add('hidden');
+      joysticks.right.axis = 'xy';
+      
+      // Обновляем лейбл
+      if (rightLabel) {
+        rightLabel.querySelector('.axis-icon').textContent = '🎮';
+        rightLabel.querySelector('.axis-name').textContent = 'XY';
+      }
+    } else {
+      // Возвращаем раздельный режим
+      overlay.classList.remove('single-mode');
+      leftWrapper?.classList.remove('hidden');
+      joysticks.left.axis = 'y';
+      joysticks.right.axis = 'x';
+      
+      // Возвращаем лейбл
+      if (rightLabel) {
+        rightLabel.querySelector('.axis-icon').textContent = '⬅➡';
+        rightLabel.querySelector('.axis-name').textContent = 'РУЛЬ';
+      }
+    }
+
+    // Пересчитываем радиус (размер мог измениться)
+    setTimeout(() => {
+      calcJoystickRadius('left');
+      calcJoystickRadius('right');
+    }, 50);
+
+    console.log(`🎮 Joystick mode: ${mode}`);
+  }
+
+  /**
+   * Отрисовка графика expo кривой
+   */
+  function drawExpoGraph(expo) {
+    if (!expoCtx || !expoCanvas) return;
+
+    const w = expoCanvas.width;
+    const h = expoCanvas.height;
+    const padding = 10;
+
+    // Очистка
+    expoCtx.fillStyle = '#0f0f0f';
+    expoCtx.fillRect(0, 0, w, h);
+
+    // Сетка
+    expoCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    expoCtx.lineWidth = 1;
+    expoCtx.beginPath();
+    // Вертикальная линия (центр)
+    expoCtx.moveTo(w / 2, padding);
+    expoCtx.lineTo(w / 2, h - padding);
+    // Горизонтальная линия (центр)
+    expoCtx.moveTo(padding, h / 2);
+    expoCtx.lineTo(w - padding, h / 2);
+    expoCtx.stroke();
+
+    // Линейная кривая (эталон)
+    expoCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    expoCtx.lineWidth = 1;
+    expoCtx.beginPath();
+    expoCtx.moveTo(padding, h - padding);
+    expoCtx.lineTo(w - padding, padding);
+    expoCtx.stroke();
+
+    // Expo кривая
+    expoCtx.strokeStyle = '#4a9eff';
+    expoCtx.lineWidth = 2;
+    expoCtx.beginPath();
+
+    const steps = 50;
+    for (let i = 0; i <= steps; i++) {
+      const input = i / steps;  // 0..1
+      const output = ControlService.calcExpoPoint(input, expo);
+      
+      const x = padding + input * (w - 2 * padding);
+      const y = h - padding - output * (h - 2 * padding);
+      
+      if (i === 0) {
+        expoCtx.moveTo(x, y);
+      } else {
+        expoCtx.lineTo(x, y);
+      }
+    }
+    expoCtx.stroke();
+
+    // Подписи осей
+    expoCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    expoCtx.font = '9px sans-serif';
+    expoCtx.fillText('IN', w - padding - 12, h - padding + 10);
+    expoCtx.fillText('OUT', padding - 2, padding + 10);
+  }
+
   // === Запуск ===
   document.addEventListener('DOMContentLoaded', () => {
     init();
     initDriveControls();
     initJoysticks();
+    initSettings();
   });
 })();

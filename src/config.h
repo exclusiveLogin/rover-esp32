@@ -15,7 +15,7 @@
 
 // Переворот изображения (0=выкл, 1=вкл)
 #define CAM_VFLIP       1   // Вертикальный переворот (по вертикали)
-#define CAM_HMIRROR     0   // Горизонтальное зеркало (по горизонтали)
+#define CAM_HMIRROR     1   // Горизонтальное зеркало (по горизонтали)
 #define CAM_PIN_XCLK    0
 #define CAM_PIN_SIOD    26
 #define CAM_PIN_SIOC    27
