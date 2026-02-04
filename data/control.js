@@ -37,9 +37,12 @@ class ControlService {
 
     // === Состояние ===
     this.state = {
-      // Текущие значения (от джойстика/кнопок)
+      // Текущие значения (от джойстика/кнопок) — сырые
       x: 0,
       y: 0,
+      // Значения после expo — реальный сигнал
+      expoX: 0,
+      expoY: 0,
       active: false,          // Активно ли управление (джойстик зажат)
       
       // Последние отправленные значения
@@ -176,7 +179,7 @@ class ControlService {
    * Автоматически отправляет stop
    */
   deactivate() {
-    this._updateState({ x: 0, y: 0, active: false });
+    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, active: false });
     this._sendImmediate(0, 0);
   }
 
@@ -185,7 +188,7 @@ class ControlService {
    */
   emergencyStop() {
     this._abort();
-    this._updateState({ x: 0, y: 0, active: false, lastSentX: 0, lastSentY: 0 });
+    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, active: false, lastSentX: 0, lastSentY: 0 });
     this._sendImmediate(0, 0);
   }
 
@@ -252,8 +255,10 @@ class ControlService {
     const expoX = this._applyExpo(x);
     const expoY = this._applyExpo(y);
     
-    // Обновляем lastSent ДО запроса (сырые значения)
+    // Обновляем state (сырые + expo значения)
     this._updateState({
+      expoX: expoX,
+      expoY: expoY,
       lastSentX: x,
       lastSentY: y,
       lastSentTime: Date.now(),

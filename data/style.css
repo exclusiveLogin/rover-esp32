@@ -661,9 +661,16 @@ main {
 .joystick-label .axis-value {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 0.8rem;
-  color: var(--accent);
+  color: var(--text-secondary);
   min-width: 35px;
   text-align: right;
+}
+
+.joystick-label .axis-expo {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.8rem;
+  color: var(--accent);
+  min-width: 40px;
 }
 
 /* Центральный индикатор состояния */

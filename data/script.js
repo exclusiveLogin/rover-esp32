@@ -569,16 +569,27 @@
    * Обновление индикаторов
    */
   function updateIndicators(state) {
+    // Сырые значения
     const xEl = document.getElementById('joy-x');
     const yEl = document.getElementById('joy-y');
+    // Expo значения
+    const expoXEl = document.getElementById('expo-x');
+    const expoYEl = document.getElementById('expo-y');
+    // Статус
     const activeEl = document.getElementById('joy-active');
     const statusEl = document.getElementById('control-status');
 
+    // Сырые
     if (xEl) xEl.textContent = state.x;
     if (yEl) yEl.textContent = state.y;
+    
+    // Expo (с стрелкой)
+    if (expoXEl) expoXEl.textContent = `→${state.expoX}`;
+    if (expoYEl) expoYEl.textContent = `→${state.expoY}`;
+    
     if (activeEl) activeEl.textContent = state.active ? '🟢' : '⚪';
     
-    // Статус
+    // Статус (показываем expo значения)
     if (statusEl) {
       statusEl.classList.remove('error', 'pending');
       
@@ -589,11 +600,18 @@
         statusEl.textContent = '...';
         statusEl.classList.add('pending');
       } else if (state.active) {
-        statusEl.textContent = `${state.x},${state.y}`;
+        statusEl.textContent = `${state.expoX},${state.expoY}`;
       } else {
         statusEl.textContent = '';
       }
     }
+    
+    // Обновляем график с точками
+    const points = state.active ? {
+      rawX: state.x, rawY: state.y,
+      expoX: state.expoX, expoY: state.expoY
+    } : null;
+    drawExpoGraph(currentExpo, points);
   }
 
   /**
@@ -623,6 +641,7 @@
 
   let expoCanvas = null;
   let expoCtx = null;
+  let currentExpo = 0;  // Текущее значение expo для перерисовки
 
   /**
    * Инициализация настроек
@@ -648,6 +667,7 @@
     if (slider) {
       slider.addEventListener('input', () => {
         const value = parseInt(slider.value);
+        currentExpo = value / 100;  // Сохраняем для перерисовки с точками
         
         // Обновляем UI
         if (valueEl) valueEl.textContent = `${value}%`;
@@ -666,8 +686,13 @@
           controlService.setExpo(value);
         }
         
-        // Перерисовываем график
-        drawExpoGraph(value / 100);
+        // Перерисовываем график (с текущими точками если есть)
+        const state = controlService ? controlService.getState() : null;
+        const points = state && state.active ? {
+          rawX: state.x, rawY: state.y,
+          expoX: state.expoX, expoY: state.expoY
+        } : null;
+        drawExpoGraph(currentExpo, points);
       });
     }
 
@@ -730,12 +755,19 @@
   /**
    * Отрисовка графика expo кривой
    */
-  function drawExpoGraph(expo) {
+  /**
+   * Отрисовка графика expo с опциональными точками текущих значений
+   * @param {number} expo - Значение expo (-1..+1)
+   * @param {object} points - Опционально: { rawX, rawY, expoX, expoY } для отрисовки точек
+   */
+  function drawExpoGraph(expo, points = null) {
     if (!expoCtx || !expoCanvas) return;
 
     const w = expoCanvas.width;
     const h = expoCanvas.height;
     const padding = 10;
+    const graphW = w - 2 * padding;
+    const graphH = h - 2 * padding;
 
     // Очистка
     expoCtx.fillStyle = '#0f0f0f';
@@ -745,10 +777,8 @@
     expoCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     expoCtx.lineWidth = 1;
     expoCtx.beginPath();
-    // Вертикальная линия (центр)
     expoCtx.moveTo(w / 2, padding);
     expoCtx.lineTo(w / 2, h - padding);
-    // Горизонтальная линия (центр)
     expoCtx.moveTo(padding, h / 2);
     expoCtx.lineTo(w - padding, h / 2);
     expoCtx.stroke();
@@ -768,11 +798,11 @@
 
     const steps = 50;
     for (let i = 0; i <= steps; i++) {
-      const input = i / steps;  // 0..1
+      const input = i / steps;
       const output = ControlService.calcExpoPoint(input, expo);
       
-      const x = padding + input * (w - 2 * padding);
-      const y = h - padding - output * (h - 2 * padding);
+      const x = padding + input * graphW;
+      const y = h - padding - output * graphH;
       
       if (i === 0) {
         expoCtx.moveTo(x, y);
@@ -781,6 +811,47 @@
       }
     }
     expoCtx.stroke();
+
+    // === Точки текущих значений ===
+    if (points) {
+      const maxVal = 255;
+
+      // Функция для отрисовки точки
+      const drawPoint = (rawVal, expoVal, color, label) => {
+        // Нормализуем (берём абсолютное значение, т.к. график 0..1)
+        const inputNorm = Math.abs(rawVal) / maxVal;
+        const outputNorm = Math.abs(expoVal) / maxVal;
+
+        const px = padding + inputNorm * graphW;
+        const py = h - padding - outputNorm * graphH;
+
+        // Точка
+        expoCtx.beginPath();
+        expoCtx.arc(px, py, 5, 0, Math.PI * 2);
+        expoCtx.fillStyle = color;
+        expoCtx.fill();
+
+        // Обводка
+        expoCtx.strokeStyle = '#fff';
+        expoCtx.lineWidth = 1;
+        expoCtx.stroke();
+
+        // Подпись
+        expoCtx.fillStyle = color;
+        expoCtx.font = 'bold 9px sans-serif';
+        expoCtx.fillText(label, px + 7, py + 3);
+      };
+
+      // Точка X (оранжевая)
+      if (points.rawX !== undefined && points.rawX !== 0) {
+        drawPoint(points.rawX, points.expoX, '#ff9800', 'X');
+      }
+
+      // Точка Y (зелёная)
+      if (points.rawY !== undefined && points.rawY !== 0) {
+        drawPoint(points.rawY, points.expoY, '#4caf50', 'Y');
+      }
+    }
 
     // Подписи осей
     expoCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
