@@ -19,7 +19,6 @@ static DriveState state = {{0, 0, 0, 0}};
 // Демо переменные
 static uint8_t demoStep = 0;
 static unsigned long demoLastMs = 0;
-static const unsigned long DEMO_STEP_MS = 2000;
 
 // --- Внутренняя функция: применить PWM ---
 static void applyPwm(Motor motor) {
@@ -137,94 +136,94 @@ void driveDemoUpdate() {
         // === Одиночные моторы ===
         case 0:
             Serial.println("🔴 [1/16] FL only");
-            driveSetSpeed(MOTOR_FL, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);
             break;
         case 1:
             Serial.println("🟠 [2/16] FR only");
-            driveSetSpeed(MOTOR_FR, 200);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);
             break;
         case 2:
             Serial.println("🟡 [3/16] RL only");
-            driveSetSpeed(MOTOR_RL, 200);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
             break;
         case 3:
             Serial.println("🟢 [4/16] RR only");
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             break;
 
         // === Парные: левая/правая сторона ===
         case 4:
             Serial.println("⬅️ [5/16] LEFT side (FL + RL)");
-            driveSetSpeed(MOTOR_FL, 200);
-            driveSetSpeed(MOTOR_RL, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
             break;
         case 5:
             Serial.println("➡️ [6/16] RIGHT side (FR + RR)");
-            driveSetSpeed(MOTOR_FR, 200);
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             break;
 
         // === Парные: перед/зад ===
         case 6:
             Serial.println("⬆️ [7/16] FRONT (FL + FR)");
-            driveSetSpeed(MOTOR_FL, 200);
-            driveSetSpeed(MOTOR_FR, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);
             break;
         case 7:
             Serial.println("⬇️ [8/16] REAR (RL + RR)");
-            driveSetSpeed(MOTOR_RL, 200);
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             break;
 
         // === Диагонали ===
         case 8:
             Serial.println("↗️ [9/16] DIAG 1 (FL + RR)");
-            driveSetSpeed(MOTOR_FL, 200);
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             break;
         case 9:
             Serial.println("↖️ [10/16] DIAG 2 (FR + RL)");
-            driveSetSpeed(MOTOR_FR, 200);
-            driveSetSpeed(MOTOR_RL, 200);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
             break;
 
         // === Все 4 вместе ===
         case 10:
             Serial.println("🔵 [11/16] ALL motors");
-            driveSetSpeed(MOTOR_FL, 200);
-            driveSetSpeed(MOTOR_FR, 200);
-            driveSetSpeed(MOTOR_RL, 200);
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             break;
 
         // === Танковый разворот (гусеницы) ===
         case 11:
             Serial.println("🔄 [12/16] TANK LEFT (right fwd, left back)");
-            driveSetSpeed(MOTOR_FR, 200);  // правая вперёд
-            driveSetSpeed(MOTOR_RR, 200);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_DEFAULT);  // правая вперёд
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_DEFAULT);
             // FL, RL = 0 (в реале назад, но у нас LED)
             break;
         case 12:
             Serial.println("🔃 [13/16] TANK RIGHT (left fwd, right back)");
-            driveSetSpeed(MOTOR_FL, 200);  // левая вперёд
-            driveSetSpeed(MOTOR_RL, 200);
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_DEFAULT);  // левая вперёд
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_DEFAULT);
             // FR, RR = 0 (в реале назад)
             break;
 
         // === Плавное нарастание ===
         case 13:
-            Serial.println("📈 [14/16] RAMP UP all (50)");
-            driveSetSpeed(MOTOR_FL, 50);
-            driveSetSpeed(MOTOR_FR, 50);
-            driveSetSpeed(MOTOR_RL, 50);
-            driveSetSpeed(MOTOR_RR, 50);
+            Serial.println("📈 [14/16] RAMP UP all (low)");
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_RAMP_LOW);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_RAMP_LOW);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_RAMP_LOW);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_RAMP_LOW);
             break;
         case 14:
-            Serial.println("📈 [15/16] RAMP UP all (150)");
-            driveSetSpeed(MOTOR_FL, 150);
-            driveSetSpeed(MOTOR_FR, 150);
-            driveSetSpeed(MOTOR_RL, 150);
-            driveSetSpeed(MOTOR_RR, 150);
+            Serial.println("📈 [15/16] RAMP UP all (mid)");
+            driveSetSpeed(MOTOR_FL, DEMO_SPEED_RAMP_MID);
+            driveSetSpeed(MOTOR_FR, DEMO_SPEED_RAMP_MID);
+            driveSetSpeed(MOTOR_RL, DEMO_SPEED_RAMP_MID);
+            driveSetSpeed(MOTOR_RR, DEMO_SPEED_RAMP_MID);
             break;
 
         // === Стоп ===

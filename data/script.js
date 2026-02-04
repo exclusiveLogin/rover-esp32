@@ -242,306 +242,310 @@
   }
 
   // ============================================================
-  // 🎮 JOYSTICK (Виртуальный стик с автовозвратом)
+  // 🎮 DUAL JOYSTICKS — DJI-style (поверх видео)
   // ============================================================
   //
-  // Поддерживает touch и mouse.
-  // При отпускании — автовозврат в центр и отправка stop.
-  // Отправляет данные на /api/control с type: "xy".
+  // Левый джойстик: ГАЗ (только ось Y)
+  // Правый джойстик: РУЛЬ (только ось X)
+  //
+  // Состояние мержится в ControlService.
   //
   // ============================================================
 
-  const CONTROL_API = '/api/control';
-  const JOYSTICK_SEND_INTERVAL = 50;  // Интервал отправки (мс)
+  let controlService = null;
 
-  let joystickActive = false;      // Активен ли джойстик
-  let joystickX = 0;               // Текущая позиция X (-255..+255)
-  let joystickY = 0;               // Текущая позиция Y (-255..+255)
-  let joystickSendTimer = null;    // Таймер отправки
-  let joystickArea = null;         // DOM элемент области
-  let joystickStick = null;        // DOM элемент ручки
-  let joystickRadius = 0;          // Радиус зоны движения
-
-  // === SwitchMap паттерн: отмена предыдущих запросов ===
-  // AbortController для отмены предыдущего fetch при новом запросе
-  let controlAbortController = null;
-  // Счётчик запросов для защиты от race condition
-  let controlRequestId = 0;
+  // Конфиг джойстиков
+  const joysticks = {
+    left: {
+      area: null,
+      stick: null,
+      radius: 0,
+      axis: 'y',       // Управляет осью Y (газ)
+      active: false,
+      touchId: null,   // ID тача для multitouch
+    },
+    right: {
+      area: null,
+      stick: null,
+      radius: 0,
+      axis: 'x',       // Управляет осью X (руль)
+      active: false,
+      touchId: null,
+    },
+  };
 
   /**
-   * Инициализация джойстика
+   * Инициализация двойных джойстиков
    */
-  function initJoystick() {
-    joystickArea = document.getElementById('joystick-area');
-    joystickStick = document.getElementById('joystick-stick');
-    
-    if (!joystickArea || !joystickStick) {
+  function initJoysticks() {
+    // Находим элементы
+    joysticks.left.area = document.getElementById('joystick-left');
+    joysticks.left.stick = document.getElementById('stick-left');
+    joysticks.right.area = document.getElementById('joystick-right');
+    joysticks.right.stick = document.getElementById('stick-right');
+
+    if (!joysticks.left.area || !joysticks.right.area) {
       console.warn('Joystick elements not found');
       return;
     }
 
-    // Вычисляем радиус зоны (половина ширины минус радиус ручки)
-    const areaRect = joystickArea.getBoundingClientRect();
-    const stickSize = 70;  // Размер ручки из CSS
-    joystickRadius = (areaRect.width / 2) - (stickSize / 2);
+    // Вычисляем радиусы
+    calcJoystickRadius('left');
+    calcJoystickRadius('right');
 
-    // === Mouse события ===
-    joystickArea.addEventListener('mousedown', onJoystickStart);
-    document.addEventListener('mousemove', onJoystickMove);
-    document.addEventListener('mouseup', onJoystickEnd);
+    // === Создаём ControlService ===
+    controlService = new ControlService('/api/control');
 
-    // === Touch события ===
-    joystickArea.addEventListener('touchstart', onJoystickStart, { passive: false });
-    document.addEventListener('touchmove', onJoystickMove, { passive: false });
-    document.addEventListener('touchend', onJoystickEnd);
-    document.addEventListener('touchcancel', onJoystickEnd);
+    // Подписки
+    controlService.onMotorsUpdate = (motors) => updateDriveUI(motors);
+    controlService.onStateChange = (state) => updateIndicators(state);
+    controlService.onError = (err) => showControlError(err.message);
 
-    // === Кнопки направлений ===
-    document.querySelectorAll('.dir-btn').forEach(btn => {
-      const dir = btn.dataset.dir;
-      
-      // При нажатии — отправляем команду направления
-      btn.addEventListener('mousedown', () => sendDirectionCommand(dir));
-      btn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        sendDirectionCommand(dir);
-      });
-      
-      // При отпускании — стоп (кроме кнопки stop)
-      if (dir !== 'stop') {
-        btn.addEventListener('mouseup', () => sendDirectionCommand('stop'));
-        btn.addEventListener('mouseleave', () => sendDirectionCommand('stop'));
-        btn.addEventListener('touchend', () => sendDirectionCommand('stop'));
-      }
+    // Запускаем
+    controlService.start();
+    console.log('🎮 ControlService started');
+
+    // === Привязка событий для каждого джойстика ===
+    setupJoystickEvents('left');
+    setupJoystickEvents('right');
+
+    // Пересчёт радиуса при resize
+    window.addEventListener('resize', () => {
+      calcJoystickRadius('left');
+      calcJoystickRadius('right');
     });
 
-    console.log('🎮 Joystick initialized, radius:', joystickRadius);
+    console.log('🎮 Dual joysticks initialized');
   }
 
   /**
-   * Начало движения джойстика
+   * Вычисление радиуса джойстика
    */
-  function onJoystickStart(e) {
+  function calcJoystickRadius(side) {
+    const joy = joysticks[side];
+    if (!joy.area) return;
+    
+    const rect = joy.area.getBoundingClientRect();
+    const stickSize = joy.stick ? joy.stick.offsetWidth : 50;
+    joy.radius = (rect.width / 2) - (stickSize / 2);
+  }
+
+  /**
+   * Привязка событий touch/mouse к джойстику
+   */
+  function setupJoystickEvents(side) {
+    const joy = joysticks[side];
+
+    // === Touch (поддержка multitouch) ===
+    joy.area.addEventListener('touchstart', (e) => onJoyStart(e, side), { passive: false });
+    joy.area.addEventListener('touchmove', (e) => onJoyMove(e, side), { passive: false });
+    joy.area.addEventListener('touchend', (e) => onJoyEnd(e, side));
+    joy.area.addEventListener('touchcancel', (e) => onJoyEnd(e, side));
+
+    // === Mouse ===
+    joy.area.addEventListener('mousedown', (e) => onJoyStart(e, side));
+  }
+
+  /**
+   * Начало движения
+   */
+  function onJoyStart(e, side) {
     e.preventDefault();
-    joystickActive = true;
-    joystickStick.classList.add('active');
-    
-    // Обновляем позицию сразу
-    updateJoystickPosition(e);
-    
-    // Запускаем периодическую отправку
-    startJoystickSending();
+    const joy = joysticks[side];
+
+    // Для touch сохраняем ID
+    if (e.touches) {
+      // Находим тач, который начался на этом джойстике
+      for (const touch of e.changedTouches) {
+        joy.touchId = touch.identifier;
+        break;
+      }
+    }
+
+    joy.active = true;
+    joy.stick.classList.add('active');
+
+    // Обновляем позицию
+    const value = getJoyValue(e, side);
+    applyJoyValue(side, value);
+
+    // Mouse события на document
+    if (!e.touches) {
+      const moveHandler = (ev) => onJoyMove(ev, side);
+      const endHandler = () => {
+        document.removeEventListener('mousemove', moveHandler);
+        document.removeEventListener('mouseup', endHandler);
+        onJoyEnd(null, side);
+      };
+      document.addEventListener('mousemove', moveHandler);
+      document.addEventListener('mouseup', endHandler);
+    }
   }
 
   /**
-   * Движение джойстика
+   * Движение
    */
-  function onJoystickMove(e) {
-    if (!joystickActive) return;
+  function onJoyMove(e, side) {
+    const joy = joysticks[side];
+    if (!joy.active) return;
     e.preventDefault();
-    updateJoystickPosition(e);
+
+    const value = getJoyValue(e, side);
+    applyJoyValue(side, value);
   }
 
   /**
-   * Конец движения — автовозврат в центр
+   * Конец движения
    */
-  function onJoystickEnd(e) {
-    if (!joystickActive) return;
+  function onJoyEnd(e, side) {
+    const joy = joysticks[side];
     
-    joystickActive = false;
-    joystickStick.classList.remove('active');
-    
-    // Останавливаем отправку
-    stopJoystickSending();
-    
-    // Возвращаем в центр
-    joystickX = 0;
-    joystickY = 0;
-    updateJoystickUI();
-    
-    // Отправляем stop
-    sendControlXY(0, 0);
-  }
+    // Для touch проверяем что это наш тач
+    if (e && e.changedTouches) {
+      let found = false;
+      for (const touch of e.changedTouches) {
+        if (touch.identifier === joy.touchId) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return;  // Не наш тач
+    }
 
-  /**
-   * Обновление позиции джойстика по событию
-   */
-  function updateJoystickPosition(e) {
-    const rect = joystickArea.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
+    joy.active = false;
+    joy.touchId = null;
+    joy.stick.classList.remove('active');
 
-    // Получаем координаты (touch или mouse)
-    let clientX, clientY;
-    if (e.touches && e.touches.length > 0) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
+    // Сброс позиции
+    applyJoyValue(side, 0);
+
+    // Сброс в ControlService
+    if (joy.axis === 'x') {
+      controlService.resetX();
     } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
+      controlService.resetY();
     }
-
-    // Смещение от центра
-    let deltaX = clientX - centerX;
-    let deltaY = centerY - clientY;  // Инвертируем Y (вверх = положительный)
-
-    // Ограничиваем радиусом
-    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    if (distance > joystickRadius) {
-      const scale = joystickRadius / distance;
-      deltaX *= scale;
-      deltaY *= scale;
-    }
-
-    // Нормализуем в диапазон -255..+255
-    joystickX = Math.round((deltaX / joystickRadius) * 255);
-    joystickY = Math.round((deltaY / joystickRadius) * 255);
-
-    updateJoystickUI();
   }
 
   /**
-   * Обновление визуального положения ручки
+   * Получение значения из события
    */
-  function updateJoystickUI() {
-    // Позиция ручки (пиксели от центра)
-    const pixelX = (joystickX / 255) * joystickRadius;
-    const pixelY = -(joystickY / 255) * joystickRadius;  // Инвертируем обратно для CSS
+  function getJoyValue(e, side) {
+    const joy = joysticks[side];
+    const rect = joy.area.getBoundingClientRect();
+    const center = joy.axis === 'y' 
+      ? rect.top + rect.height / 2
+      : rect.left + rect.width / 2;
 
-    joystickStick.style.left = `calc(50% + ${pixelX}px)`;
-    joystickStick.style.top = `calc(50% + ${pixelY}px)`;
+    // Координата из события
+    let pos;
+    if (e.touches) {
+      // Находим наш тач
+      for (const touch of e.touches) {
+        if (touch.identifier === joy.touchId) {
+          pos = joy.axis === 'y' ? touch.clientY : touch.clientX;
+          break;
+        }
+      }
+      if (pos === undefined) return 0;
+    } else {
+      pos = joy.axis === 'y' ? e.clientY : e.clientX;
+    }
 
-    // Обновляем индикаторы
+    // Delta от центра
+    let delta = joy.axis === 'y' 
+      ? center - pos   // Y: вверх = положительный
+      : pos - center;  // X: вправо = положительный
+
+    // Ограничение радиусом
+    if (Math.abs(delta) > joy.radius) {
+      delta = delta > 0 ? joy.radius : -joy.radius;
+    }
+
+    // Нормализация в -255..+255
+    return Math.round((delta / joy.radius) * 255);
+  }
+
+  /**
+   * Применение значения к джойстику
+   */
+  function applyJoyValue(side, value) {
+    const joy = joysticks[side];
+
+    // Визуальное перемещение ручки
+    const pixel = (value / 255) * joy.radius;
+    if (joy.axis === 'y') {
+      joy.stick.style.top = `calc(50% - ${pixel}px)`;
+      joy.stick.style.left = '50%';
+    } else {
+      joy.stick.style.left = `calc(50% + ${pixel}px)`;
+      joy.stick.style.top = '50%';
+    }
+
+    // Отправка в ControlService
+    if (joy.axis === 'x') {
+      controlService.setX(value);
+    } else {
+      controlService.setY(value);
+    }
+  }
+
+  /**
+   * Обновление индикаторов
+   */
+  function updateIndicators(state) {
     const xEl = document.getElementById('joy-x');
     const yEl = document.getElementById('joy-y');
     const activeEl = document.getElementById('joy-active');
+    const statusEl = document.getElementById('control-status');
 
-    if (xEl) xEl.textContent = joystickX;
-    if (yEl) yEl.textContent = joystickY;
-    if (activeEl) activeEl.textContent = joystickActive ? '🟢' : '⚪';
-  }
-
-  /**
-   * Запуск периодической отправки данных джойстика
-   */
-  function startJoystickSending() {
-    stopJoystickSending();  // На всякий случай
+    if (xEl) xEl.textContent = state.x;
+    if (yEl) yEl.textContent = state.y;
+    if (activeEl) activeEl.textContent = state.active ? '🟢' : '⚪';
     
-    // Отправляем сразу
-    sendControlXY(joystickX, joystickY);
-    
-    // Запускаем интервал
-    joystickSendTimer = setInterval(() => {
-      if (joystickActive) {
-        sendControlXY(joystickX, joystickY);
-      }
-    }, JOYSTICK_SEND_INTERVAL);
-  }
-
-  /**
-   * Остановка отправки
-   * Также отменяет pending запросы
-   */
-  function stopJoystickSending() {
-    if (joystickSendTimer) {
-      clearInterval(joystickSendTimer);
-      joystickSendTimer = null;
-    }
-    
-    // Отменяем pending запрос если есть
-    if (controlAbortController) {
-      controlAbortController.abort();
-      controlAbortController = null;
-    }
-  }
-
-  /**
-   * Отправка X/Y координат на /api/control
-   * 
-   * Реализует паттерн switchMap:
-   * - Отменяет предыдущий запрос через AbortController
-   * - Игнорирует ответы от устаревших запросов через requestId
-   */
-  function sendControlXY(x, y) {
-    // === SwitchMap: отменяем предыдущий запрос ===
-    if (controlAbortController) {
-      controlAbortController.abort();
-    }
-    controlAbortController = new AbortController();
-    
-    // Увеличиваем счётчик запросов
-    const thisRequestId = ++controlRequestId;
-
-    fetch(CONTROL_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'xy', x: x, y: y }),
-      signal: controlAbortController.signal  // Привязываем AbortController
-    })
-    .then(r => r.json())
-    .then(data => {
-      // === Проверка: это ответ от актуального запроса? ===
-      // Если пришёл ответ от старого запроса — игнорируем
-      if (thisRequestId !== controlRequestId) {
-        return;  // Устаревший ответ, пропускаем
-      }
+    // Статус
+    if (statusEl) {
+      statusEl.classList.remove('error', 'pending');
       
-      // Обновляем UI моторов из ответа
-      if (data.motors) {
-        updateDriveUI(data.motors);
+      if (state.error) {
+        statusEl.textContent = state.error;
+        statusEl.classList.add('error');
+      } else if (state.pending) {
+        statusEl.textContent = '...';
+        statusEl.classList.add('pending');
+      } else if (state.active) {
+        statusEl.textContent = `${state.x},${state.y}`;
+      } else {
+        statusEl.textContent = '';
       }
-    })
-    .catch(err => {
-      // Игнорируем ошибки отмены (AbortError)
-      if (err.name === 'AbortError') return;
-      console.error('Control API error:', err);
-    });
+    }
   }
 
   /**
-   * Отправка команды направления
-   * Также с switchMap паттерном
+   * Показать ошибку управления
    */
-  function sendDirectionCommand(direction) {
-    const speed = 200;  // Скорость по умолчанию
+  function showControlError(message) {
+    console.error('🚨 Control error:', message);
     
-    // === SwitchMap: отменяем предыдущий запрос ===
-    if (controlAbortController) {
-      controlAbortController.abort();
-    }
-    controlAbortController = new AbortController();
-    
-    const thisRequestId = ++controlRequestId;
-    
-    fetch(CONTROL_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        type: direction === 'stop' ? 'stop' : 'direction',
-        direction: direction,
-        speed: speed
-      }),
-      signal: controlAbortController.signal
-    })
-    .then(r => r.json())
-    .then(data => {
-      // Проверка актуальности ответа
-      if (thisRequestId !== controlRequestId) return;
+    const statusEl = document.getElementById('control-status');
+    if (statusEl) {
+      statusEl.textContent = message;
+      statusEl.classList.add('error');
       
-      if (data.motors) {
-        updateDriveUI(data.motors);
-      }
-    })
-    .catch(err => {
-      if (err.name === 'AbortError') return;
-      console.error('Control API error:', err);
-    });
+      // Автоочистка через 3 сек
+      setTimeout(() => {
+        if (statusEl.textContent === message) {
+          statusEl.textContent = '';
+          statusEl.classList.remove('error');
+        }
+      }, 3000);
+    }
   }
 
   // === Запуск ===
   document.addEventListener('DOMContentLoaded', () => {
     init();
     initDriveControls();
-    initJoystick();
+    initJoysticks();
   });
 })();

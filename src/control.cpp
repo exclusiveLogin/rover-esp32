@@ -120,8 +120,7 @@ void controlSetXY(int16_t x, int16_t y) {
     y = constrain(y, -255, 255);
     
     // Мёртвая зона (deadzone) — игнорируем малые отклонения
-    const int16_t DEADZONE = 20;
-    if (abs(x) < DEADZONE && abs(y) < DEADZONE) {
+    if (abs(x) < CONTROL_DEADZONE && abs(y) < CONTROL_DEADZONE) {
         // Джойстик в центре — остановка
         controlStop();
         return;

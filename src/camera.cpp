@@ -50,6 +50,15 @@ bool cameraInit() {
         return false;
     }
 
+    // --- Переворот изображения (на стороне сенсора, без canvas) ---
+    // OV2640 поддерживает set_vflip и set_hmirror
+    sensor_t* sensor = esp_camera_sensor_get();
+    if (sensor) {
+        sensor->set_vflip(sensor, CAM_VFLIP);    // Вертикально (0/1)
+        sensor->set_hmirror(sensor, CAM_HMIRROR); // Горизонтально (0/1)
+        Serial.printf("   📷 Flip: vflip=%d, hmirror=%d\n", CAM_VFLIP, CAM_HMIRROR);
+    }
+
     Serial.println("✅ Камера инициализирована");
     return true;
 }

@@ -12,6 +12,10 @@
 // --- Камера AI-Thinker ESP32-CAM ---
 #define CAM_PIN_PWDN    32
 #define CAM_PIN_RESET   -1
+
+// Переворот изображения (0=выкл, 1=вкл)
+#define CAM_VFLIP       1   // Вертикальный переворот (по вертикали)
+#define CAM_HMIRROR     0   // Горизонтальное зеркало (по горизонтали)
 #define CAM_PIN_XCLK    0
 #define CAM_PIN_SIOD    26
 #define CAM_PIN_SIOC    27
@@ -51,5 +55,15 @@
 // --- HTTP серверы ---
 #define HTTP_PORT_MAIN   80
 #define HTTP_PORT_STREAM 81
+
+// --- Управление (Control) ---
+#define CONTROL_TIMEOUT_MS   2000  // Watchdog таймаут (мс) — стоп если нет команд (2 сек)
+#define CONTROL_DEADZONE     20    // Мёртвая зона джойстика (игнорируем малые отклонения)
+
+// --- Демо режим ---
+#define DEMO_STEP_MS         2000  // Длительность одного шага демо (мс)
+#define DEMO_SPEED_DEFAULT   200   // Скорость в демо режиме
+#define DEMO_SPEED_RAMP_LOW  50    // Низкая скорость для ramp
+#define DEMO_SPEED_RAMP_MID  150   // Средняя скорость для ramp
 
 #endif // CONFIG_H

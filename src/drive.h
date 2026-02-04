@@ -9,9 +9,9 @@
 
 // Индексы моторов
 enum Motor : uint8_t {
-    MOTOR_FL = 0,  // Front Left
+    MOTOR_FL = 2,  // Front Left
     MOTOR_FR = 1,  // Front Right
-    MOTOR_RL = 2,  // Rear Left
+    MOTOR_RL = 0,  // Rear Left
     MOTOR_RR = 3,  // Rear Right
     MOTOR_COUNT = 4
 };

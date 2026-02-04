@@ -19,13 +19,52 @@
   </header>
 
   <main>
-    <!-- Видео панель -->
+    <!-- Видео панель с джойстиками поверх -->
     <div class="video-panel">
       <div class="video-container">
         <img id="video-feed" alt="Video Feed">
         <div class="video-overlay" id="video-overlay">
           <div class="loader"></div>
           <span>Загрузка стрима...</span>
+        </div>
+        
+        <!-- 🎮 Джойстики поверх видео (DJI-style) -->
+        <div class="joysticks-overlay" id="joysticks-overlay">
+          <!-- Левый джойстик — ГАЗ (только Y) -->
+          <div class="joystick-wrapper left">
+            <div class="joystick-area" id="joystick-left">
+              <div class="joystick-base">
+                <div class="joystick-stick" id="stick-left"></div>
+              </div>
+              <div class="joystick-rail vertical"></div>
+            </div>
+            <div class="joystick-label">
+              <span class="axis-icon">⬆⬇</span>
+              <span class="axis-name">ГАЗ</span>
+              <span class="axis-value" id="joy-y">0</span>
+            </div>
+          </div>
+
+          <!-- Правый джойстик — РУЛЬ (только X) -->
+          <div class="joystick-wrapper right">
+            <div class="joystick-area" id="joystick-right">
+              <div class="joystick-base">
+                <div class="joystick-stick" id="stick-right"></div>
+              </div>
+              <div class="joystick-rail horizontal"></div>
+            </div>
+            <div class="joystick-label">
+              <span class="axis-icon">⬅➡</span>
+              <span class="axis-name">РУЛЬ</span>
+              <span class="axis-value" id="joy-x">0</span>
+            </div>
+          </div>
+
+          <!-- Центральный индикатор состояния -->
+          <div class="control-indicator">
+            <span id="joy-active">⚪</span>
+            <span id="control-status" class="control-status"></span>
+          </div>
         </div>
       </div>
 
@@ -115,56 +154,13 @@
       <button id="stop-all" class="btn stop-btn">🛑 STOP ALL</button>
     </div>
 
-    <!-- Виртуальный джойстик -->
-    <div class="joystick-panel">
-      <h2>🎮 Джойстик</h2>
-      
-      <div class="joystick-container">
-        <!-- Область джойстика -->
-        <div class="joystick-area" id="joystick-area">
-          <!-- Внешний круг (зона движения) -->
-          <div class="joystick-base">
-            <!-- Ручка джойстика -->
-            <div class="joystick-stick" id="joystick-stick"></div>
-          </div>
-          <!-- Перекрестие -->
-          <div class="joystick-crosshair"></div>
-        </div>
-        
-        <!-- Индикаторы осей -->
-        <div class="joystick-info">
-          <div class="axis-display">
-            <span class="axis-label">X:</span>
-            <span class="axis-value" id="joy-x">0</span>
-          </div>
-          <div class="axis-display">
-            <span class="axis-label">Y:</span>
-            <span class="axis-value" id="joy-y">0</span>
-          </div>
-          <div class="axis-display">
-            <span class="axis-label">⏱️</span>
-            <span class="axis-value" id="joy-active">—</span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Быстрые кнопки направлений -->
-      <div class="direction-buttons">
-        <button class="dir-btn" data-dir="forward">⬆️</button>
-        <div class="dir-row">
-          <button class="dir-btn" data-dir="left">⬅️</button>
-          <button class="dir-btn stop" data-dir="stop">⏹️</button>
-          <button class="dir-btn" data-dir="right">➡️</button>
-        </div>
-        <button class="dir-btn" data-dir="backward">⬇️</button>
-      </div>
-    </div>
   </main>
 
   <footer>
     <p>ESP32-CAM Rover © 2026</p>
   </footer>
 
+  <script src="/control.js"></script>
   <script src="/script.js"></script>
 </body>
 </html>
