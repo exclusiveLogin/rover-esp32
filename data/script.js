@@ -14,10 +14,8 @@
   const streamUrlDisplay = document.getElementById('stream-url');
   const streamStatusDisplay = document.getElementById('stream-status');
 
-  // === Конфигурация ===
-  const STREAM_PORT = 81;
-  const RECONNECT_DELAY = 3000;
-  const streamUrl = `http://${location.hostname}:${STREAM_PORT}/stream`;
+  // === Конфигурация (из AppConfig) ===
+  const streamUrl = window.AppConfig.getStreamUrl();
 
   // === Состояние ===
   let isStreaming = false;
@@ -94,7 +92,7 @@
       if (isStreaming) {
         videoFeed.src = streamUrl + '?t=' + Date.now();
       }
-    }, RECONNECT_DELAY);
+    }, window.AppConfig.UI.reconnectDelay);
   }
 
   function clearReconnectTimer() {
@@ -106,7 +104,7 @@
 
   // === ФОТО ===
   function takePhoto() {
-    const photoUrl = '/photo?t=' + Date.now();
+    const photoUrl = window.AppConfig.getApiUrl(window.AppConfig.PHOTO_API) + '?t=' + Date.now();
     
     // Временно останавливаем стрим, показываем фото
     const wasStreaming = isStreaming;
@@ -125,7 +123,7 @@
 
   // === LED ===
   function fetchLedState() {
-    fetch('/led')
+    fetch(window.AppConfig.getApiUrl(window.AppConfig.LED_API))
       .then(r => r.json())
       .then(data => {
         ledState = data.state || false;
@@ -135,7 +133,7 @@
   }
 
   function toggleLed() {
-    fetch('/led/toggle', { method: 'POST' })
+    fetch(window.AppConfig.getApiUrl(window.AppConfig.LED_API + '/toggle'), { method: 'POST' })
       .then(r => r.json())
       .then(data => {
         ledState = data.state || false;
@@ -181,18 +179,17 @@
   // 🚗 DRIVE API
   // ============================================================
 
-  const DRIVE_API = '/api/drive';
   const STEP_VALUE = 25;  // Шаг изменения скорости
 
   function fetchDriveState() {
-    fetch(DRIVE_API)
+    fetch(window.AppConfig.getApiUrl(window.AppConfig.DRIVE_API))
       .then(r => r.json())
       .then(updateDriveUI)
       .catch(err => console.error('Drive API error:', err));
   }
 
   function sendDriveCommand(action, motor, value = STEP_VALUE) {
-    fetch(DRIVE_API, {
+    fetch(window.AppConfig.getApiUrl(window.AppConfig.DRIVE_API), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, motor, value })
@@ -294,7 +291,10 @@
     calcJoystickRadius('right');
 
     // === Создаём ControlService ===
-    controlService = new ControlService('/api/control');
+    controlService = new ControlService(
+      window.AppConfig.getApiUrl(window.AppConfig.CONTROL_API),
+      window.AppConfig.CONTROL
+    );
 
     // Подписки
     controlService.onMotorsUpdate = (motors) => updateDriveUI(motors);
@@ -625,13 +625,13 @@
       statusEl.textContent = message;
       statusEl.classList.add('error');
       
-      // Автоочистка через 3 сек
+      // Автоочистка
       setTimeout(() => {
         if (statusEl.textContent === message) {
           statusEl.textContent = '';
           statusEl.classList.remove('error');
         }
-      }, 3000);
+      }, window.AppConfig.UI.errorDisplayTime);
     }
   }
 
