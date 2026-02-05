@@ -975,6 +975,12 @@
           cvReady = true;
           cvBtn.classList.remove('loading');
           console.log('✅ OpenCV.js loaded');
+          
+          // Показываем секцию CV Debug когда OpenCV готов
+          const debugSection = document.getElementById('cv-debug-section');
+          if (debugSection) {
+            debugSection.style.display = 'block';
+          }
         }
       }, 100);
     });
@@ -985,8 +991,47 @@
     // Пометим кнопку как "загружается"
     cvBtn.classList.add('loading');
     cvBtn.title = 'OpenCV.js загружается...';
+    
+    // Инициализация CV Debug panel
+    initCVDebug();
 
     console.log('👁️ CV module initialized (waiting for OpenCV.js)');
+  }
+  
+  /**
+   * Инициализация CV Debug панели
+   */
+  function initCVDebug() {
+    const debugToggle = document.getElementById('cv-debug-toggle');
+    const debugGrid = document.getElementById('cv-debug-grid');
+    
+    if (!debugToggle || !debugGrid) return;
+    
+    debugToggle.addEventListener('click', () => {
+      const isActive = debugToggle.dataset.active === 'true';
+      const newState = !isActive;
+      
+      // Обновляем UI
+      debugToggle.dataset.active = newState;
+      debugToggle.textContent = newState ? 'ON' : 'OFF';
+      debugGrid.style.display = newState ? 'grid' : 'none';
+      
+      // Применяем к CVProcessor
+      if (cvProcessor) {
+        cvProcessor.setDebug(newState);
+        
+        // При первом включении устанавливаем debug canvases
+        if (newState && !cvProcessor._debugCanvases.gray) {
+          cvProcessor.setDebugCanvases({
+            gray: document.getElementById('cv-debug-gray'),
+            edges: document.getElementById('cv-debug-edges'),
+            lines: document.getElementById('cv-debug-lines')
+          });
+        }
+      }
+      
+      console.log(`👁️ CV Debug: ${newState ? 'ON' : 'OFF'}`);
+    });
   }
 
   /**
@@ -1022,6 +1067,17 @@
           console.error('CV error:', err);
         }
       });
+      
+      // Применяем текущее состояние debug
+      const debugToggle = document.getElementById('cv-debug-toggle');
+      if (debugToggle && debugToggle.dataset.active === 'true') {
+        cvProcessor.setDebug(true);
+        cvProcessor.setDebugCanvases({
+          gray: document.getElementById('cv-debug-gray'),
+          edges: document.getElementById('cv-debug-edges'),
+          lines: document.getElementById('cv-debug-lines')
+        });
+      }
     }
 
     // Toggle

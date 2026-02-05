@@ -4,61 +4,95 @@
  * ============================================================
  * 
  * Модуль обработки видеопотока с помощью OpenCV.js
- * Детекция: горизонт, сетка пола, стены
+ * 
+ * Функции:
+ *   - Детекция линии горизонта (с учётом наклона камеры)
+ *   - Построение перспективной сетки пола
+ *   - Детекция вертикальных линий (стены, углы)
+ * 
+ * Алгоритм детекции горизонта:
+ *   1. Canny edge detection → контуры
+ *   2. Hough transform → линии
+ *   3. Кластеризация по углу → параллельные линии
+ *   4. Кластеризация по параметру d → коллинеарные линии
+ *   5. Взвешенная медиана → финальная линия
  * 
  * @requires OpenCV.js (загружается асинхронно)
  * 
  * Использование:
- *   const cv = new CVProcessor(videoElement, overlayCanvas);
- *   cv.start();
- *   cv.stop();
+ *   const processor = new CVProcessor(videoElement, overlayCanvas);
+ *   await processor.start();
+ *   processor.stop();
  * 
  * ============================================================
  */
 
 class CVProcessor {
+  
+  // ==========================================================
+  // 📐 Константы
+  // ==========================================================
+  
+  static DEFAULTS = {
+    // Разрешение обработки (px)
+    processWidth: 320,
+    processHeight: 240,
+    processInterval: 100,  // мс между кадрами (10 FPS)
+    
+    // Canny edge detection
+    cannyLow: 50,
+    cannyHigh: 150,
+    
+    // Hough line detection
+    houghThreshold: 50,
+    houghMinLength: 50,
+    houghMaxGap: 10,
+    
+    // Углы (градусы)
+    horizonMaxAngle: 45,     // макс. отклонение от горизонтали
+    wallAngleTolerance: 15,  // допуск от вертикали для стен
+    clusterAngleTolerance: 8,// допуск для кластеризации по углу
+    
+    // Сглаживание
+    smoothFrames: 5,         // буфер медианного фильтра
+    minClusterSegments: 1,   // минимум сегментов в кластере
+    
+    // Цвета
+    colors: {
+      horizon: '#00FF00',
+      grid: 'rgba(0, 255, 255, 0.4)',
+      walls: '#FF6600'
+    },
+    
+    // Debug
+    debug: false  // Вывод промежуточных этапов на debug-canvas
+  };
+  
+  // ==========================================================
+  // 🏗️ Конструктор
+  // ==========================================================
+  
+  /**
+   * @param {HTMLVideoElement|HTMLImageElement} videoElement - источник видео
+   * @param {HTMLCanvasElement} overlayCanvas - canvas для отрисовки
+   * @param {Object} options - настройки (см. DEFAULTS)
+   */
   constructor(videoElement, overlayCanvas, options = {}) {
+    // Элементы DOM
     this.video = videoElement;
     this.overlay = overlayCanvas;
     this.ctx = overlayCanvas.getContext('2d');
     
-    // Скрытый canvas для захвата кадров
+    // Скрытый canvas для захвата кадров (уменьшенное разрешение)
     this.captureCanvas = document.createElement('canvas');
     this.captureCtx = this.captureCanvas.getContext('2d');
     
-    // Настройки
+    // Конфигурация: defaults + пользовательские опции
     this.config = {
-      enabled: false,
-      processWidth: options.processWidth || 320,    // Разрешение обработки
-      processHeight: options.processHeight || 240,
-      processInterval: options.processInterval || 100,  // мс между кадрами
-      
-      // Детекция
-      showHorizon: options.showHorizon ?? true,
-      showGrid: options.showGrid ?? true,
-      showWalls: options.showWalls ?? true,
-      
-      // Параметры Canny
-      cannyLow: options.cannyLow || 50,
-      cannyHigh: options.cannyHigh || 150,
-      
-      // Параметры Hough
-      houghThreshold: options.houghThreshold || 50,
-      houghMinLength: options.houghMinLength || 50,
-      houghMaxGap: options.houghMaxGap || 10,
-      
-      // Углы фильтрации
-      horizonAngleTolerance: options.horizonAngleTolerance || 15,  // градусы
-      wallAngleTolerance: options.wallAngleTolerance || 15,
-      
-      // Цвета
-      colors: {
-        horizon: options.horizonColor || '#00FF00',
-        grid: options.gridColor || 'rgba(0, 255, 255, 0.4)',
-        walls: options.wallsColor || '#FF6600',
-      },
-      
-      ...options
+      ...CVProcessor.DEFAULTS,
+      colors: { ...CVProcessor.DEFAULTS.colors },
+      ...options,
+      enabled: false
     };
     
     // Состояние
@@ -67,38 +101,47 @@ class CVProcessor {
     this._animationId = null;
     this._cvReady = false;
     
-    // Результаты последней обработки
-    this.lastResult = {
-      horizon: null,
-      walls: [],
-      timestamp: 0
+    // Буферы для временного сглаживания (медианный фильтр)
+    this._buffers = {
+      horizonY: [],
+      horizonAngle: []
     };
+    
+    // Результаты последней обработки
+    this.lastResult = { horizon: null, walls: [], timestamp: 0 };
     
     // Callbacks
     this.onProcess = options.onProcess || null;
     this.onError = options.onError || null;
     
+    // Debug canvases (для визуализации промежуточных этапов)
+    this._debugCanvases = {
+      gray: null,
+      edges: null,
+      lines: null
+    };
+    
     this._checkOpenCV();
   }
   
-  // ============================================================
-  // 🔧 Инициализация
-  // ============================================================
+  // ==========================================================
+  // 🔧 Инициализация OpenCV
+  // ==========================================================
   
-  /**
-   * Проверка готовности OpenCV.js
-   */
+  /** Проверка готовности OpenCV.js */
   _checkOpenCV() {
     if (typeof cv !== 'undefined' && cv.Mat) {
       this._cvReady = true;
       console.log('✅ CVProcessor: OpenCV.js ready');
     } else {
-      console.warn('⏳ CVProcessor: OpenCV.js not loaded yet');
+      console.warn('⏳ CVProcessor: waiting for OpenCV.js...');
     }
   }
   
   /**
    * Ожидание загрузки OpenCV.js
+   * @param {number} timeout - таймаут в мс (по умолчанию 30 сек)
+   * @returns {Promise<boolean>} - true если загружен
    */
   async waitForOpenCV(timeout = 30000) {
     if (this._cvReady) return true;
@@ -113,24 +156,19 @@ class CVProcessor {
       await new Promise(r => setTimeout(r, 100));
     }
     
-    console.error('❌ CVProcessor: OpenCV.js load timeout');
+    console.error('❌ CVProcessor: OpenCV.js timeout');
     return false;
   }
   
-  // ============================================================
+  // ==========================================================
   // 🎬 Управление
-  // ============================================================
+  // ==========================================================
   
-  /**
-   * Запуск обработки
-   */
+  /** Запуск обработки */
   async start() {
-    if (!this._cvReady) {
-      const ready = await this.waitForOpenCV();
-      if (!ready) {
-        this.onError?.('OpenCV.js не загружен');
-        return false;
-      }
+    if (!this._cvReady && !(await this.waitForOpenCV())) {
+      this.onError?.('OpenCV.js не загружен');
+      return false;
     }
     
     this.config.enabled = true;
@@ -140,43 +178,72 @@ class CVProcessor {
     return true;
   }
   
-  /**
-   * Остановка обработки
-   */
+  /** Остановка обработки */
   stop() {
     this._running = false;
     this.config.enabled = false;
+    
     if (this._animationId) {
       cancelAnimationFrame(this._animationId);
       this._animationId = null;
     }
+    
     this._clearOverlay();
     console.log('⏹️ CVProcessor: Stopped');
   }
   
-  /**
-   * Переключение
-   */
+  /** Переключение вкл/выкл */
   toggle() {
-    if (this._running) {
-      this.stop();
-    } else {
-      this.start();
-    }
+    this._running ? this.stop() : this.start();
     return this._running;
   }
   
-  /**
-   * Проверка состояния
-   */
+  /** Проверка состояния */
   isRunning() {
     return this._running;
   }
   
-  // ============================================================
-  // 🔄 Цикл обработки
-  // ============================================================
+  // ==========================================================
+  // 👁️ Debug режим
+  // ==========================================================
   
+  /**
+   * Установка debug-канвасов для отображения промежуточных этапов CV
+   * @param {Object} canvases - объект с canvas элементами
+   * @param {HTMLCanvasElement} canvases.gray - canvas для grayscale
+   * @param {HTMLCanvasElement} canvases.edges - canvas для Canny edges
+   * @param {HTMLCanvasElement} canvases.lines - canvas для Hough lines
+   */
+  setDebugCanvases(canvases) {
+    if (canvases.gray) this._debugCanvases.gray = canvases.gray;
+    if (canvases.edges) this._debugCanvases.edges = canvases.edges;
+    if (canvases.lines) this._debugCanvases.lines = canvases.lines;
+    console.log('👁️ CVProcessor: Debug canvases configured');
+  }
+  
+  /**
+   * Включение/выключение debug режима
+   * @param {boolean} enabled - true для включения
+   */
+  setDebug(enabled) {
+    this.config.debug = enabled;
+    console.log(`👁️ CVProcessor: Debug mode ${enabled ? 'ON' : 'OFF'}`);
+  }
+  
+  /**
+   * Переключение debug режима
+   * @returns {boolean} - новое состояние
+   */
+  toggleDebug() {
+    this.setDebug(!this.config.debug);
+    return this.config.debug;
+  }
+  
+  // ==========================================================
+  // 🔄 Главный цикл обработки
+  // ==========================================================
+  
+  /** Цикл обработки кадров (requestAnimationFrame) */
   _processLoop() {
     if (!this._running) return;
     
@@ -189,27 +256,21 @@ class CVProcessor {
     this._animationId = requestAnimationFrame(() => this._processLoop());
   }
   
+  /** Обработка одного кадра */
   _processFrame() {
     try {
-      // Синхронизация размеров
       this._syncCanvasSize();
       
-      // Захват кадра
       const src = this._captureFrame();
       if (!src) return;
       
-      // Обработка
       const result = this._analyze(src);
       this.lastResult = { ...result, timestamp: Date.now() };
       
-      // Визуализация
       this._render(result);
-      
-      // Callback
       this.onProcess?.(result);
       
-      // Cleanup
-      src.delete();
+      src.delete();  // ВАЖНО: освобождаем память OpenCV
       
     } catch (error) {
       console.error('CVProcessor error:', error);
@@ -217,26 +278,26 @@ class CVProcessor {
     }
   }
   
-  // ============================================================
+  // ==========================================================
   // 📷 Захват кадра
-  // ============================================================
+  // ==========================================================
   
+  /** Синхронизация размеров canvas */
   _syncCanvasSize() {
     const { video, overlay, captureCanvas, config } = this;
     
-    // Получаем размеры видео (поддержка img и video элементов)
-    const isVideoElement = video.tagName === 'VIDEO';
-    const videoWidth = isVideoElement ? video.videoWidth : video.naturalWidth;
-    const videoHeight = isVideoElement ? video.videoHeight : video.naturalHeight;
+    // Размеры источника
+    const isVideo = video.tagName === 'VIDEO';
+    const srcWidth = isVideo ? video.videoWidth : video.naturalWidth;
+    const srcHeight = isVideo ? video.videoHeight : video.naturalHeight;
     
-    // Используем clientWidth/clientHeight для overlay (размер на экране)
-    const displayWidth = video.clientWidth || videoWidth;
-    const displayHeight = video.clientHeight || videoHeight;
+    // Overlay = размер на экране
+    const displayW = video.clientWidth || srcWidth;
+    const displayH = video.clientHeight || srcHeight;
     
-    // Overlay = размер видео на экране
-    if (overlay.width !== displayWidth || overlay.height !== displayHeight) {
-      overlay.width = displayWidth;
-      overlay.height = displayHeight;
+    if (overlay.width !== displayW || overlay.height !== displayH) {
+      overlay.width = displayW;
+      overlay.height = displayH;
     }
     
     // Capture = уменьшенное разрешение для обработки
@@ -246,349 +307,593 @@ class CVProcessor {
     }
   }
   
+  /** Захват кадра с видео/изображения */
   _captureFrame() {
     const { video, captureCanvas, captureCtx, config } = this;
+    const isVideo = video.tagName === 'VIDEO';
     
-    // Проверяем что видео готово (поддержка img и video элементов)
-    const isVideoElement = video.tagName === 'VIDEO';
-    
-    if (isVideoElement) {
-      // HTMLVideoElement: проверяем readyState и videoWidth
-      if (video.readyState < 2 || video.videoWidth === 0) {
-        return null;
-      }
+    // Проверка готовности источника
+    if (isVideo) {
+      if (video.readyState < 2 || video.videoWidth === 0) return null;
     } else {
-      // HTMLImageElement: проверяем complete и naturalWidth
-      if (!video.complete || video.naturalWidth === 0) {
-        return null;
-      }
+      if (!video.complete || video.naturalWidth === 0) return null;
     }
     
-    // Рисуем кадр на capture canvas (уменьшенный)
+    // Масштабируем в уменьшенный canvas
     captureCtx.drawImage(video, 0, 0, config.processWidth, config.processHeight);
     
-    // Создаём Mat из canvas
     return cv.imread(captureCanvas);
   }
   
-  // ============================================================
-  // 🔍 Анализ
-  // ============================================================
+  // ==========================================================
+  // 🔍 Анализ изображения
+  // ==========================================================
   
+  /**
+   * Основной анализ: edge detection → line detection → clustering
+   * @param {cv.Mat} src - входное изображение
+   * @returns {Object} { horizon, walls }
+   */
   _analyze(src) {
-    const result = {
-      horizon: null,
-      walls: []
-    };
+    const width = src.cols;
+    const height = src.rows;
     
-    // Подготовка
-    let gray = new cv.Mat();
-    let edges = new cv.Mat();
-    let lines = new cv.Mat();
+    // Вычисляем адаптивные параметры (зависят от разрешения)
+    const params = this._computeAdaptiveParams(width, height);
+    
+    // OpenCV матрицы (создаём здесь, чтобы гарантировать delete)
+    const gray = new cv.Mat();
+    const edges = new cv.Mat();
+    const lines = new cv.Mat();
     
     try {
-      // Grayscale + Blur
+      // 1. Grayscale + Gaussian blur (убирает шум)
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
       cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
       
-      // Canny edges
-      cv.Canny(gray, edges, this.config.cannyLow, this.config.cannyHigh);
+      // 2. Canny edge detection
+      cv.Canny(gray, edges, params.cannyLow, params.cannyHigh);
       
-      // Hough lines
+      // 3. Hough line detection (probabilistic)
       cv.HoughLinesP(
-        edges, lines, 1, Math.PI / 180,
-        this.config.houghThreshold,
-        this.config.houghMinLength,
-        this.config.houghMaxGap
+        edges, lines,
+        1,                    // rho resolution (px)
+        Math.PI / 180,        // theta resolution (rad)
+        params.houghThreshold,
+        params.houghMinLength,
+        params.houghMaxGap
       );
       
-      // Классифицируем линии (с кластеризацией горизонта)
-      const classified = this._classifyLines(lines, src.cols, src.rows);
+      // 👁️ Debug: отображение промежуточных этапов
+      if (this.config.debug) {
+        this._renderDebugCanvases(gray, edges, lines, width, height);
+      }
       
-      result.horizon = classified.horizon;
-      result.walls = classified.walls;
+      // 4. Классификация и кластеризация линий
+      return this._classifyLines(lines, width, height, params);
       
     } finally {
+      // ВАЖНО: всегда освобождаем память OpenCV
       gray.delete();
       edges.delete();
       lines.delete();
     }
-    
-    return result;
   }
   
-  _classifyLines(lines, width, height) {
-    const horizontalLines = [];
-    const verticalLines = [];
-    const { horizonAngleTolerance, wallAngleTolerance } = this.config;
+  /**
+   * 👁️ Отрисовка debug-канвасов (промежуточные этапы CV)
+   * @param {cv.Mat} gray - grayscale изображение
+   * @param {cv.Mat} edges - Canny edges
+   * @param {cv.Mat} lines - Hough lines
+   * @param {number} width - ширина изображения
+   * @param {number} height - высота изображения
+   */
+  _renderDebugCanvases(gray, edges, lines, width, height) {
+    const { _debugCanvases: canvases } = this;
     
-    // Зона поиска горизонта (верхняя часть кадра)
-    const searchZoneTop = height * 0.1;
-    const searchZoneBottom = height * 0.7;
-    
-    for (let i = 0; i < lines.rows; i++) {
-      const x1 = lines.data32S[i * 4];
-      const y1 = lines.data32S[i * 4 + 1];
-      const x2 = lines.data32S[i * 4 + 2];
-      const y2 = lines.data32S[i * 4 + 3];
-      
-      const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-      const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-      const avgY = (y1 + y2) / 2;
-      
-      // Горизонтальные (угол ~0° или ~180°)
-      const isHorizontal = Math.abs(angle) < horizonAngleTolerance || 
-                           Math.abs(angle) > (180 - horizonAngleTolerance);
-      
-      if (isHorizontal && avgY > searchZoneTop && avgY < searchZoneBottom) {
-        horizontalLines.push({ x1, y1, x2, y2, angle, length, avgY });
+    try {
+      // 1. Grayscale
+      if (canvases.gray) {
+        cv.imshow(canvases.gray, gray);
       }
       
-      // Вертикальные (угол ~90° или ~-90°)
-      if (Math.abs(Math.abs(angle) - 90) < wallAngleTolerance) {
-        verticalLines.push({ x1, y1, x2, y2, angle, length });
+      // 2. Canny Edges
+      if (canvases.edges) {
+        cv.imshow(canvases.edges, edges);
+      }
+      
+      // 3. Lines visualization (рисуем линии на чёрном фоне)
+      if (canvases.lines) {
+        const linesVis = new cv.Mat.zeros(height, width, cv.CV_8UC3);
+        
+        // Рисуем все найденные линии
+        for (let i = 0; i < lines.rows; i++) {
+          const x1 = lines.data32S[i * 4];
+          const y1 = lines.data32S[i * 4 + 1];
+          const x2 = lines.data32S[i * 4 + 2];
+          const y2 = lines.data32S[i * 4 + 3];
+          
+          // Определяем угол для раскраски
+          const angle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI);
+          const normAngle = angle > 90 ? 180 - angle : angle;
+          
+          // Горизонтальные - зелёные, вертикальные - красные, остальные - жёлтые
+          let color;
+          if (normAngle < this.config.horizonMaxAngle) {
+            color = new cv.Scalar(0, 255, 0);   // Зелёный - горизонтальные
+          } else if (normAngle > 90 - this.config.wallAngleTolerance) {
+            color = new cv.Scalar(255, 100, 0); // Оранжевый - вертикальные (walls)
+          } else {
+            color = new cv.Scalar(100, 100, 255); // Бледно-красный - остальные
+          }
+          
+          cv.line(
+            linesVis,
+            new cv.Point(x1, y1),
+            new cv.Point(x2, y2),
+            color,
+            2
+          );
+        }
+        
+        cv.imshow(canvases.lines, linesVis);
+        linesVis.delete();
+      }
+      
+    } catch (e) {
+      console.warn('👁️ CVProcessor debug render error:', e);
+    }
+  }
+  
+  /**
+   * Вычисление адаптивных параметров под разрешение
+   * @param {number} w - ширина
+   * @param {number} h - высота
+   */
+  _computeAdaptiveParams(w, h) {
+    const diagonal = Math.sqrt(w * w + h * h);
+    const scale = Math.min(w / 640, h / 480);
+    const { config } = this;
+    
+    return {
+      // Canny: снижаем пороги для лучшей детекции тёмных линий
+      cannyLow: Math.max(20, config.cannyLow * scale * 0.7),
+      cannyHigh: Math.max(60, config.cannyHigh * scale * 0.8),
+      
+      // Hough: адаптируем под размер изображения
+      houghThreshold: Math.max(20, Math.min(config.houghThreshold, Math.sqrt(w * h) * 0.15)),
+      houghMinLength: Math.max(20, Math.min(config.houghMinLength, diagonal * 0.08)),
+      houghMaxGap: Math.max(5, Math.min(config.houghMaxGap, w * 0.03)),
+      
+      // Кластеризация
+      clusterToleranceD: Math.max(10, diagonal * 0.03),  // 3% от диагонали
+      clusterToleranceAngle: config.clusterAngleTolerance || 8
+    };
+  }
+  
+  // ==========================================================
+  // 📊 Классификация линий
+  // ==========================================================
+  
+  /**
+   * Классификация линий на горизонтальные и вертикальные
+   * @param {cv.Mat} lines - результат HoughLinesP
+   * @param {number} width - ширина изображения
+   * @param {number} height - высота изображения
+   * @param {Object} params - адаптивные параметры
+   */
+  _classifyLines(lines, width, height, params) {
+    const horizonCandidates = [];
+    const wallCandidates = [];
+    
+    const maxHorizonAngle = this.config.horizonMaxAngle;
+    const wallTolerance = this.config.wallAngleTolerance;
+    
+    // Проходим по всем линиям из Hough transform
+    for (let i = 0; i < lines.rows; i++) {
+      const [x1, y1, x2, y2] = [
+        lines.data32S[i * 4],
+        lines.data32S[i * 4 + 1],
+        lines.data32S[i * 4 + 2],
+        lines.data32S[i * 4 + 3]
+      ];
+      
+      // Угол линии (градусы, -180..180)
+      const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+      const length = Math.hypot(x2 - x1, y2 - y1);
+      
+      // Нормализуем угол к диапазону [-90, 90]
+      let normAngle = angle;
+      if (normAngle > 90) normAngle -= 180;
+      if (normAngle < -90) normAngle += 180;
+      
+      // Центр линии
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      
+      // Параметр d (расстояние от начала координат до прямой)
+      // Уравнение прямой: x·sin(θ) - y·cos(θ) = d
+      // Это инвариант для коллинеарных сегментов
+      const rad = normAngle * Math.PI / 180;
+      const d = cx * Math.sin(rad) - cy * Math.cos(rad);
+      
+      // Классификация по углу
+      if (Math.abs(normAngle) < maxHorizonAngle) {
+        // Горизонтальные/наклонные (кандидаты на горизонт)
+        horizonCandidates.push({ x1, y1, x2, y2, cx, cy, angle: normAngle, d, length });
+      }
+      
+      if (Math.abs(Math.abs(angle) - 90) < wallTolerance) {
+        // Вертикальные (стены)
+        wallCandidates.push({ x1, y1, x2, y2, angle, length });
       }
     }
     
-    // Robust детекция горизонта через кластеризацию
-    const horizon = this._findHorizonCluster(horizontalLines, width, height);
+    // Детекция горизонта через кластеризацию
+    const horizon = this._detectHorizon(horizonCandidates, width, height, params);
     
-    // Стены — вертикальные линии, отсортированные по длине
-    verticalLines.sort((a, b) => b.length - a.length);
-    const walls = verticalLines.slice(0, 10);
+    // Стены: топ-10 по длине
+    wallCandidates.sort((a, b) => b.length - a.length);
+    const walls = wallCandidates.slice(0, 10);
     
     return { horizon, walls };
   }
   
+  // ==========================================================
+  // 🎯 Детекция горизонта (кластеризация)
+  // ==========================================================
+  
   /**
-   * Кластеризация горизонтальных линий для robust детекции горизонта
+   * Robust детекция горизонта через двухэтапную кластеризацию
+   * 
+   * Алгоритм:
+   *   1. Кластеризация по углу → группы параллельных линий
+   *   2. Кластеризация по d → группы коллинеарных линий
+   *   3. Выбор лучшего кластера по score = length × √segments
+   *   4. Финальная линия по взвешенной медиане
    */
-  _findHorizonCluster(horizontalLines, width, height) {
-    if (horizontalLines.length === 0) return null;
+  _detectHorizon(candidates, width, height, params) {
+    if (candidates.length === 0) return null;
     
-    const clusterTolerance = 15;  // px
-    const minClusterSegments = 1;
+    const { clusterToleranceD, clusterToleranceAngle } = params;
+    const minSegments = this.config.minClusterSegments;
     
-    // Кластеризация по Y
+    // ШАГ 1: Кластеризация по углу (параллельные линии)
+    const angleClusters = this._clusterByProperty(
+      candidates, 
+      'angle', 
+      clusterToleranceAngle,
+      minSegments
+    );
+    
+    if (angleClusters.length === 0) return null;
+    
+    // ШАГ 2: Для каждого кластера → подкластеры по d (коллинеарные)
+    const collinearClusters = [];
+    for (const angleCluster of angleClusters) {
+      const dClusters = this._clusterByProperty(
+        angleCluster, 
+        'd', 
+        clusterToleranceD,
+        minSegments
+      );
+      collinearClusters.push(...dClusters);
+    }
+    
+    if (collinearClusters.length === 0) return null;
+    
+    // ШАГ 3: Оценка кластеров и выбор лучшего
+    const best = this._selectBestCluster(collinearClusters);
+    
+    // ШАГ 4: Построение финальной линии по взвешенной медиане
+    return this._buildHorizonLine(best, width, height);
+  }
+  
+  /**
+   * Универсальная кластеризация по свойству
+   * @param {Array} items - массив объектов
+   * @param {string} prop - свойство для сравнения
+   * @param {number} tolerance - допуск
+   * @param {number} minSize - минимальный размер кластера
+   */
+  _clusterByProperty(items, prop, tolerance, minSize = 1) {
     const clusters = [];
     const used = new Set();
     
-    for (let i = 0; i < horizontalLines.length; i++) {
+    for (let i = 0; i < items.length; i++) {
       if (used.has(i)) continue;
       
-      const cluster = [horizontalLines[i]];
+      const seed = items[i];
+      const cluster = [seed];
       used.add(i);
       
-      for (let j = i + 1; j < horizontalLines.length; j++) {
+      for (let j = i + 1; j < items.length; j++) {
         if (used.has(j)) continue;
         
-        const line = horizontalLines[j];
-        const isNear = cluster.some(c => Math.abs(c.avgY - line.avgY) < clusterTolerance);
-        
-        if (isNear) {
-          cluster.push(line);
+        if (Math.abs(seed[prop] - items[j][prop]) < tolerance) {
+          cluster.push(items[j]);
           used.add(j);
         }
       }
       
-      clusters.push(cluster);
+      if (cluster.length >= minSize) {
+        clusters.push(cluster);
+      }
     }
     
-    // Оцениваем кластеры
-    const scoredClusters = clusters
-      .filter(c => c.length >= minClusterSegments)
-      .map(cluster => {
-        const totalLength = cluster.reduce((sum, l) => sum + l.length, 0);
-        const segmentCount = cluster.length;
-        const avgY = cluster.reduce((sum, l) => sum + l.avgY, 0) / segmentCount;
-        
-        // Score: длина × √(количество сегментов)
-        // Больше сегментов = более надёжный горизонт
-        const score = totalLength * Math.sqrt(segmentCount);
-        
-        return { cluster, totalLength, segmentCount, avgY, score };
-      })
-      .sort((a, b) => b.score - a.score);
-    
-    if (scoredClusters.length === 0) return null;
-    
-    const best = scoredClusters[0];
-    
-    // Сглаживание по времени
-    const smoothedY = this._smoothHorizon(best.avgY);
-    
-    return {
-      y: smoothedY,
-      segments: best.cluster,
-      confidence: Math.min(best.score / 500, 1),
-      segmentCount: best.segmentCount,
-      totalLength: best.totalLength,
-    };
+    return clusters;
   }
   
   /**
-   * Временное сглаживание горизонта (медианный фильтр)
+   * Выбор лучшего кластера по score
+   * Score = totalLength × √segmentCount × angleBonus
    */
-  _smoothHorizon(newY) {
-    if (!this._horizonBuffer) {
-      this._horizonBuffer = [];
+  _selectBestCluster(clusters) {
+    let best = null;
+    let bestScore = -Infinity;
+    
+    for (const cluster of clusters) {
+      const totalLength = cluster.reduce((sum, l) => sum + l.length, 0);
+      const segmentCount = cluster.length;
+      
+      // Взвешенный средний угол
+      const avgAngle = cluster.reduce((sum, l) => sum + l.angle * l.length, 0) / totalLength;
+      
+      // Бонус за близость к горизонтали (0°)
+      const angleBonus = 1.0 - Math.abs(avgAngle) / 45;
+      
+      // Score: длина × √сегменты × бонус
+      const score = totalLength * Math.sqrt(segmentCount) * (0.7 + 0.3 * angleBonus);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        best = { cluster, totalLength, segmentCount, avgAngle, score };
+      }
     }
     
-    this._horizonBuffer.push(newY);
-    if (this._horizonBuffer.length > 5) {
-      this._horizonBuffer.shift();
+    return best;
+  }
+  
+  /**
+   * Построение финальной линии горизонта по взвешенной медиане
+   */
+  _buildHorizonLine(best, width, height) {
+    const { cluster, totalLength, segmentCount, score } = best;
+    
+    // Взвешенная медиана (вес = длина сегмента)
+    const medianAngle = this._weightedMedian(cluster.map(l => ({ v: l.angle, w: l.length })));
+    const medianD = this._weightedMedian(cluster.map(l => ({ v: l.d, w: l.length })));
+    
+    // Вычисляем Y в центре экрана
+    // Уравнение: x·sin(θ) - y·cos(θ) = d
+    // При x = width/2: y = (x·sin(θ) - d) / cos(θ)
+    const rad = medianAngle * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    
+    let centerY = Math.abs(cos) > 0.001
+      ? ((width / 2) * sin - medianD) / cos
+      : height / 2;
+    
+    // Временное сглаживание (медианный фильтр)
+    const smoothY = this._smoothValue('horizonY', centerY);
+    const smoothAngle = this._smoothValue('horizonAngle', medianAngle);
+    
+    return {
+      y: smoothY,
+      angle: smoothAngle,
+      d: medianD,
+      segments: cluster,
+      confidence: Math.min(score / 500, 1),
+      segmentCount,
+      totalLength
+    };
+  }
+  
+  // ==========================================================
+  // 🧮 Утилиты
+  // ==========================================================
+  
+  /**
+   * Взвешенная медиана
+   * @param {Array} items - массив { v: value, w: weight }
+   */
+  _weightedMedian(items) {
+    if (items.length === 0) return 0;
+    if (items.length === 1) return items[0].v;
+    
+    const sorted = [...items].sort((a, b) => a.v - b.v);
+    const totalWeight = sorted.reduce((sum, x) => sum + x.w, 0);
+    const half = totalWeight / 2;
+    
+    let cumWeight = 0;
+    for (const item of sorted) {
+      cumWeight += item.w;
+      if (cumWeight >= half) return item.v;
     }
+    
+    return sorted[sorted.length - 1].v;
+  }
+  
+  /**
+   * Временное сглаживание (медианный фильтр)
+   * @param {string} bufferName - имя буфера
+   * @param {number} value - новое значение
+   */
+  _smoothValue(bufferName, value) {
+    const buffer = this._buffers[bufferName];
+    const maxSize = this.config.smoothFrames;
+    
+    buffer.push(value);
+    if (buffer.length > maxSize) buffer.shift();
     
     // Медиана
-    const sorted = [...this._horizonBuffer].sort((a, b) => a - b);
+    const sorted = [...buffer].sort((a, b) => a - b);
     return sorted[Math.floor(sorted.length / 2)];
   }
   
-  // ============================================================
+  // ==========================================================
   // 🎨 Визуализация
-  // ============================================================
+  // ==========================================================
   
+  /** Отрисовка результатов */
   _render(result) {
-    const { ctx, overlay, config } = this;
+    const { config, overlay } = this;
     const { horizon, walls } = result;
     
     // Масштаб: обработка → дисплей
     const scaleX = overlay.width / config.processWidth;
     const scaleY = overlay.height / config.processHeight;
     
-    // Очищаем
     this._clearOverlay();
     
-    // Горизонт
     if (config.showHorizon && horizon) {
       this._drawHorizon(horizon, scaleX, scaleY);
     }
     
-    // Сетка пола (используем Y горизонта как точку схода)
     if (config.showGrid && horizon) {
-      const vanishingPoint = {
-        x: config.processWidth / 2,  // центр по X
-        y: horizon.y
-      };
-      this._drawGrid(vanishingPoint, horizon, scaleX, scaleY);
+      this._drawGrid(horizon, scaleX, scaleY);
     }
     
-    // Стены
     if (config.showWalls && walls.length > 0) {
       this._drawWalls(walls, scaleX, scaleY);
     }
   }
   
+  /** Очистка overlay */
   _clearOverlay() {
     this.ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
   
+  /** Отрисовка линии горизонта */
   _drawHorizon(horizon, scaleX, scaleY) {
     const { ctx, overlay, config } = this;
+    const { y, angle, confidence, segments, segmentCount } = horizon;
     
-    const y = horizon.y * scaleY;
-    const confidence = horizon.confidence || 0;
-    
-    // Основная линия горизонта (яркость зависит от confidence)
+    const yScaled = y * scaleY;
     const alpha = 0.5 + confidence * 0.5;
-    ctx.strokeStyle = config.colors.horizon.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
+    
+    // Основная линия (пунктир)
+    ctx.strokeStyle = this._colorWithAlpha(config.colors.horizon, alpha);
     ctx.lineWidth = 2;
     ctx.setLineDash([10, 5]);
     
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(overlay.width, y);
+    if (Math.abs(angle) > 0.5) {
+      // Наклонная линия
+      const rad = angle * Math.PI / 180;
+      const halfW = overlay.width / 2;
+      const offset = Math.tan(rad) * halfW;
+      ctx.moveTo(0, yScaled - offset);
+      ctx.lineTo(overlay.width, yScaled + offset);
+    } else {
+      // Горизонтальная линия
+      ctx.moveTo(0, yScaled);
+      ctx.lineTo(overlay.width, yScaled);
+    }
     ctx.stroke();
-    
     ctx.setLineDash([]);
     
-    // Отдельные сегменты (для визуализации кластера)
-    if (horizon.segments && horizon.segments.length > 1) {
+    // Сегменты кластера (полупрозрачные)
+    if (segments && segments.length > 1) {
       ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
       ctx.lineWidth = 4;
-      horizon.segments.forEach(seg => {
+      for (const seg of segments) {
         ctx.beginPath();
         ctx.moveTo(seg.x1 * scaleX, seg.y1 * scaleY);
         ctx.lineTo(seg.x2 * scaleX, seg.y2 * scaleY);
         ctx.stroke();
-      });
+      }
     }
     
-    // Метка с confidence
+    // Метка
     ctx.fillStyle = config.colors.horizon;
     ctx.font = '12px monospace';
-    const label = `HORIZON ${Math.round(confidence * 100)}% (${horizon.segmentCount} seg)`;
-    ctx.fillText(label, 10, y - 5);
+    const angleStr = Math.abs(angle) > 0.5 ? ` ∠${angle.toFixed(1)}°` : '';
+    ctx.fillText(`HORIZON ${Math.round(confidence * 100)}% (${segmentCount} seg)${angleStr}`, 10, yScaled - 5);
   }
   
-  _drawGrid(vp, horizon, scaleX, scaleY) {
+  /** Отрисовка перспективной сетки */
+  _drawGrid(horizon, scaleX, scaleY) {
     const { ctx, overlay, config } = this;
     
-    const vpX = vp.x * scaleX;
-    const vpY = vp.y * scaleY;
+    const vpX = (config.processWidth / 2) * scaleX;  // точка схода X
+    const vpY = horizon.y * scaleY;                  // точка схода Y
     const bottomY = overlay.height;
     const width = overlay.width;
     
     ctx.strokeStyle = config.colors.grid;
     ctx.lineWidth = 1;
     
-    // Линии от точки схода к низу экрана
-    const gridLines = 12;
-    for (let i = 0; i <= gridLines; i++) {
-      const t = i / gridLines;
-      const bottomX = t * width;
-      
+    // Вертикальные линии (от точки схода к низу)
+    const gridCols = 12;
+    for (let i = 0; i <= gridCols; i++) {
+      const t = i / gridCols;
       ctx.beginPath();
       ctx.moveTo(vpX, vpY);
-      ctx.lineTo(bottomX, bottomY);
+      ctx.lineTo(t * width, bottomY);
       ctx.stroke();
     }
     
-    // Горизонтальные линии с перспективой
+    // Горизонтальные линии (параллельны горизонту)
     const gridRows = 8;
+    const angleRad = (horizon.angle || 0) * Math.PI / 180;
+    
     for (let i = 1; i <= gridRows; i++) {
       const t = Math.pow(i / gridRows, 1.5);  // нелинейное распределение
       const y = vpY + t * (bottomY - vpY);
       
-      // Ширина зависит от расстояния до горизонта
-      const perspectiveScale = (y - vpY) / (bottomY - vpY);
-      const halfWidth = (width / 2) * perspectiveScale * 1.2;
+      // Ширина с перспективой
+      const perspScale = (y - vpY) / (bottomY - vpY);
+      const halfW = (width / 2) * perspScale * 1.2;
+      
+      // Наклон параллельно горизонту
+      const offset = Math.tan(angleRad) * halfW;
       
       ctx.beginPath();
-      ctx.moveTo(vpX - halfWidth, y);
-      ctx.lineTo(vpX + halfWidth, y);
+      ctx.moveTo(vpX - halfW, y - offset);
+      ctx.lineTo(vpX + halfW, y + offset);
       ctx.stroke();
     }
   }
   
+  /** Отрисовка вертикальных линий (стены) */
   _drawWalls(walls, scaleX, scaleY) {
     const { ctx, config } = this;
     
     ctx.strokeStyle = config.colors.walls;
     ctx.lineWidth = 2;
     
-    walls.forEach(wall => {
+    for (const wall of walls) {
       ctx.beginPath();
       ctx.moveTo(wall.x1 * scaleX, wall.y1 * scaleY);
       ctx.lineTo(wall.x2 * scaleX, wall.y2 * scaleY);
       ctx.stroke();
-    });
+    }
   }
   
-  // ============================================================
-  // ⚙️ Настройки
-  // ============================================================
+  /** Добавление альфа-канала к цвету */
+  _colorWithAlpha(color, alpha) {
+    // #RRGGBB → rgba(r, g, b, alpha)
+    if (color.startsWith('#')) {
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    return color;
+  }
   
-  /**
-   * Обновление конфига
-   */
+  // ==========================================================
+  // ⚙️ API настроек
+  // ==========================================================
+  
+  /** Обновление конфигурации */
   updateConfig(options) {
     Object.assign(this.config, options);
   }
   
-  /**
-   * Включить/выключить слой
-   */
+  /** Переключение слоя (horizon, grid, walls) */
   toggleLayer(layer, enabled) {
     const key = `show${layer.charAt(0).toUpperCase() + layer.slice(1)}`;
     if (key in this.config) {
@@ -597,8 +902,8 @@ class CVProcessor {
   }
 }
 
-// ============================================================
+// ==========================================================
 // 🌐 Экспорт
-// ============================================================
+// ==========================================================
 
 window.CVProcessor = CVProcessor;

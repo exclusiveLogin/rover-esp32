@@ -138,6 +138,31 @@
           <span class="label-expo" id="expo-label">—</span>
         </div>
       </div>
+
+      <!-- 👁️ CV Debug (промежуточные этапы обработки) -->
+      <div class="cv-debug-section" id="cv-debug-section" style="display: none;">
+        <div class="setting-row">
+          <span class="setting-label">👁️ CV Debug</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn" id="cv-debug-toggle" data-active="false">OFF</button>
+          </div>
+        </div>
+        
+        <div class="cv-debug-grid" id="cv-debug-grid" style="display: none;">
+          <div class="cv-debug-item">
+            <canvas id="cv-debug-gray" width="160" height="120"></canvas>
+            <span class="cv-debug-label">Grayscale</span>
+          </div>
+          <div class="cv-debug-item">
+            <canvas id="cv-debug-edges" width="160" height="120"></canvas>
+            <span class="cv-debug-label">Canny Edges</span>
+          </div>
+          <div class="cv-debug-item">
+            <canvas id="cv-debug-lines" width="160" height="120"></canvas>
+            <span class="cv-debug-label">Hough Lines</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Управление моторами -->

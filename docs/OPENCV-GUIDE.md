@@ -1,36 +1,24 @@
-# 🎯 OpenCV.js — Компьютерное зрение в браузере
+# 👁️ CV Processor — Компьютерное зрение в браузере
 
-Гайд по использованию OpenCV.js для детекции горизонта, пола и стен.
+Модуль обработки видеопотока с помощью OpenCV.js для детекции горизонта, сетки пола и стен.
 
 ---
 
 ## 📚 Содержание
 
-1. [Что такое OpenCV.js](#что-такое-opencvjs)
-2. [Архитектура решения](#архитектура-решения)
-3. [Основные концепции OpenCV](#основные-концепции-opencv)
-4. [Детекция горизонта](#детекция-горизонта)
-5. [Детекция пола (сетка)](#детекция-пола-сетка)
-6. [Детекция стен](#детекция-стен)
-7. [Оптимизация производительности](#оптимизация-производительности)
+1. [Быстрый старт](#быстрый-старт)
+2. [Архитектура](#архитектура)
+3. [Алгоритм детекции горизонта](#алгоритм-детекции-горизонта)
+4. [API Reference](#api-reference)
+5. [Конфигурация](#конфигурация)
+6. [Визуализация](#визуализация)
+7. [Оптимизация](#оптимизация)
 
 ---
 
-## Что такое OpenCV.js
+## Быстрый старт
 
-**OpenCV.js** — это JavaScript-порт библиотеки OpenCV, скомпилированный в WebAssembly.
-
-### Плюсы
-- ✅ Работает полностью в браузере (без сервера)
-- ✅ Высокая производительность (WASM)
-- ✅ Богатый функционал (фильтры, детекция, трансформации)
-
-### Минусы
-- ❌ Большой размер (~8 MB)
-- ❌ Время загрузки (~2-5 сек)
-- ❌ Ограничен ресурсами браузера
-
-### Установка (локальная копия)
+### Установка OpenCV.js
 
 OpenCV.js (~11MB) не включён в репозиторий. Скачай перед использованием:
 
@@ -45,610 +33,506 @@ curl -L "https://docs.opencv.org/4.x/opencv.js" -o data/opencv.js
 ### Подключение
 
 ```html
-<!-- Локальная копия (рекомендуется) -->
-<script async src="/opencv.js" onload="onOpenCvReady()"></script>
+<!-- 1. OpenCV.js -->
+<script async src="/opencv.js"></script>
 
-<!-- Или CDN (требует интернет) -->
-<script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()"></script>
+<!-- 2. CV Processor -->
+<script src="/cv-processor.js"></script>
 ```
 
+### Использование
+
 ```javascript
-function onOpenCvReady() {
-  console.log('OpenCV.js готов!', cv.getBuildInformation());
-}
+// Создание процессора
+const processor = new CVProcessor(
+  document.getElementById('video'),   // <video> или <img>
+  document.getElementById('overlay'), // <canvas> для отрисовки
+  AppConfig.CV                        // опции из config.js
+);
+
+// Запуск (async!)
+await processor.start();
+
+// Остановка
+processor.stop();
+
+// Переключение
+processor.toggle();
+
+// Получение результатов
+const { horizon, walls } = processor.lastResult;
 ```
 
 ---
 
-## Архитектура решения
+## Архитектура
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        БРАУЗЕР                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   Источник A: ESP32/IP камера        Источник B: Вебка          │
-│   ┌─────────────┐                    ┌─────────────┐            │
-│   │   <img>     │                    │  <video>    │            │
-│   │  MJPEG      │                    │ getUserMedia│            │
-│   │  (+ CORS)   │                    │ (без CORS!) │            │
-│   └──────┬──────┘                    └──────┬──────┘            │
-│          │                                  │                   │
-│          └──────────────┬───────────────────┘                   │
-│                         ▼                                       │
-│                  ┌─────────────┐    ┌─────────────┐             │
-│                  │  Canvas     │───►│  Canvas     │             │
-│                  │  (hidden)   │    │  (overlay)  │             │
-│                  └──────┬──────┘    └─────────────┘             │
-│                         │                                       │
-│                         ▼                                       │
-│                  ┌─────────────┐                                │
-│                  │  OpenCV.js  │                                │
-│                  │  обработка  │                                │
-│                  └──────┬──────┘                                │
-│                         │                                       │
-│                         ▼                                       │
-│                  ┌─────────────┐                                │
-│                  │  Результат: │                                │
-│                  │  - горизонт │                                │
-│                  │  - сетка    │                                │
-│                  │  - стены    │                                │
-│                  └─────────────┘                                │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     CVProcessor                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│  │  Video   │───►│  Capture │───►│  OpenCV  │              │
+│  │  Source  │    │  Canvas  │    │  Process │              │
+│  └──────────┘    └──────────┘    └────┬─────┘              │
+│                                       │                     │
+│                    ┌──────────────────┼───────────────┐     │
+│                    │                  ▼               │     │
+│                    │  ┌─────────────────────────┐    │     │
+│                    │  │     _analyze()          │    │     │
+│                    │  │  ┌───────────────────┐  │    │     │
+│                    │  │  │ 1. Grayscale+Blur │  │    │     │
+│                    │  │  │ 2. Canny edges    │  │    │     │
+│                    │  │  │ 3. Hough lines    │  │    │     │
+│                    │  │  │ 4. Classification │  │    │     │
+│                    │  │  │ 5. Clustering     │  │    │     │
+│                    │  │  └───────────────────┘  │    │     │
+│                    │  └─────────────────────────┘    │     │
+│                    │                  │               │     │
+│                    │                  ▼               │     │
+│                    │  ┌─────────────────────────┐    │     │
+│                    │  │   { horizon, walls }    │    │     │
+│                    │  └─────────────────────────┘    │     │
+│                    │                                 │     │
+│                    └─────────────────────────────────┘     │
+│                                       │                     │
+│                                       ▼                     │
+│                              ┌──────────────┐               │
+│                              │   Overlay    │               │
+│                              │   Canvas     │               │
+│                              └──────────────┘               │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-### Источники видео
-
-| Источник | Элемент | CORS | Описание |
-|----------|---------|------|----------|
-| ESP32 MJPEG | `<img>` | Нужен | Стрим с ровера (CORS настроен) |
-| IP камера | `<img>` | Нужен | Может не поддерживать CORS |
-| **Вебка** | `<video>` | **Не нужен** | getUserMedia — локальный доступ |
-| **Телефон** | `<video>` | **Не нужен** | getUserMedia — локальный доступ |
-
-**💡 Совет:** Для отладки CV без ровера используй кнопку "Вебка"!
 
 ### Поток данных
 
-1. **Видео** → `<img>` элемент (MJPEG стрим)
-2. **Захват кадра** → скрытый `<canvas>` (для OpenCV)
-3. **Обработка** → OpenCV.js анализирует кадр
-4. **Рендер** → результат рисуется на overlay canvas
-
-### Опциональность
-
-CV обработка **полностью опциональна**:
-- Без OpenCV.js — просто видеопоток
-- С OpenCV.js — видео + overlay с детекцией
+| Шаг | Описание |
+|-----|----------|
+| 1 | Захват кадра с `<video>` или `<img>` на скрытый canvas |
+| 2 | Масштабирование до `processWidth × processHeight` |
+| 3 | Конвертация в `cv.Mat` (OpenCV) |
+| 4 | Обработка: edges → lines → clusters |
+| 5 | Отрисовка результата на overlay canvas |
+| 6 | Очистка памяти OpenCV (`.delete()`) |
 
 ---
 
-## Основные концепции OpenCV
+## Алгоритм детекции горизонта
 
-### Mat (Матрица)
-
-**Mat** — основная структура данных. Это многомерный массив для хранения изображений.
-
-```javascript
-// Создание Mat из canvas
-let src = cv.imread(canvasElement);
-
-// Создание пустого Mat
-let dst = new cv.Mat();
-
-// ВАЖНО: всегда освобождай память!
-src.delete();
-dst.delete();
-```
-
-### Цветовые пространства
-
-```javascript
-// BGR → Grayscale (оттенки серого)
-cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-// BGR → HSV (для детекции цветов)
-cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
-cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
-```
-
-### Размытие (Blur)
-
-Убирает шум перед детекцией:
-
-```javascript
-// Гауссово размытие
-cv.GaussianBlur(src, dst, new cv.Size(5, 5), 0);
-
-// Медианное размытие (лучше для шума)
-cv.medianBlur(src, dst, 5);
-```
-
-### Детекция краёв (Canny)
-
-Находит границы объектов:
-
-```javascript
-cv.Canny(gray, edges, 50, 150);
-//                    │    │
-//                    │    └── верхний порог
-//                    └─────── нижний порог
-```
-
-### Детекция линий (Hough Transform)
-
-```javascript
-// Вероятностное преобразование Хафа
-let lines = new cv.Mat();
-cv.HoughLinesP(
-  edges,      // входное изображение (края)
-  lines,      // выходные линии
-  1,          // разрешение ρ (пиксели)
-  Math.PI/180,// разрешение θ (радианы)
-  50,         // порог (минимум точек на линии)
-  50,         // минимальная длина линии
-  10          // максимальный разрыв между точками
-);
-```
-
----
-
-## Детекция горизонта
-
-### Теория
-
-Горизонт — это **горизонтальная линия**, разделяющая небо/потолок и землю/пол.
-
-### ⚠️ Проблема простого подхода
+### Проблема
 
 **"Взять самую длинную линию"** — ненадёжно:
 
 ```
-Проблема 1: Горизонт прерван объектами
+Проблема 1: Горизонт разорван объектами
 ─────────────────────────────────────────
      🌳      🏠     🌳          🚗
   ───┬───  ──┬──  ───┬───    ──┬──     ← много коротких сегментов
-─────────────────────────────────────────
 
-Проблема 2: Самая длинная линия ≠ горизонт
+Проблема 2: Горизонт может быть наклонен
 ─────────────────────────────────────────
-  ── ─── ────                             ← настоящий горизонт (разорван)
+  Если камера наклонена, горизонт не горизонтален!
+         ╱
+        ╱
+       ╱   ← угол ≠ 0°
+
+Проблема 3: Самая длинная линия ≠ горизонт
+─────────────────────────────────────────
+  ── ─── ────                       ← настоящий горизонт (разорван)
   
-  ════════════════════════════════════    ← край стола (длиннее!)
-─────────────────────────────────────────
+  ════════════════════════════════  ← край стола (длиннее!)
 ```
 
-### ✅ Robust алгоритм: Кластеризация по Y
+### Решение: Двухэтапная кластеризация
 
-**Идея:** Горизонт — это **высота, на которой сконцентрировано много горизонтальных линий**.
-
-**Алгоритм:**
-1. Находим все горизонтальные линии
-2. Группируем по Y-координате (±tolerance)
-3. Для каждого кластера считаем **score = сумма длин × количество сегментов**
-4. Фильтруем по зоне (горизонт обычно в верхней половине)
-5. Выбираем кластер с максимальным score
+Каждая линия описывается двумя параметрами:
 
 ```
-Y=100: ─── ─── ────      score = 200 × 3 = 600
-Y=150: ── ─── ── ─────   score = 280 × 4 = 1120  ← ПОБЕДИТЕЛЬ
-Y=300: ════════════════  score = 400 × 1 = 400   (1 линия = слабый кластер)
+                      ┌───────────────────────────────────┐
+                      │  Параметры прямой (Hesse normal)  │
+                      ├───────────────────────────────────┤
+                      │  θ (theta) — угол наклона         │
+                      │  d — расстояние до начала коорд.  │
+                      │                                   │
+                      │  Уравнение:                       │
+                      │  x·sin(θ) - y·cos(θ) = d          │
+                      └───────────────────────────────────┘
 ```
 
-### Код
+**Ключевое свойство:** Все сегменты одной прямой имеют:
+- Одинаковый угол θ (параллельны)
+- Одинаковый параметр d (коллинеарны)
+
+### Алгоритм
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PIPELINE                                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. EDGE DETECTION                                          │
+│     ┌──────────┐    ┌──────────┐    ┌──────────┐           │
+│     │ Grayscale│───►│  Blur    │───►│  Canny   │           │
+│     └──────────┘    └──────────┘    └──────────┘           │
+│                                           │                 │
+│  2. LINE DETECTION                        ▼                 │
+│                                    ┌──────────┐             │
+│                                    │  Hough   │             │
+│                                    │  Lines   │             │
+│                                    └────┬─────┘             │
+│                                         │                   │
+│  3. CLASSIFICATION                      ▼                   │
+│     ┌───────────────────────────────────────────┐          │
+│     │  Для каждой линии:                        │          │
+│     │    • angle = atan2(dy, dx)                │          │
+│     │    • d = cx·sin(θ) - cy·cos(θ)            │          │
+│     │    • length = sqrt(dx² + dy²)             │          │
+│     │                                           │          │
+│     │  Разделяем на:                            │          │
+│     │    • horizontal (|angle| < 45°)           │          │
+│     │    • vertical   (|angle - 90°| < 15°)     │          │
+│     └───────────────────────────────────────────┘          │
+│                          │                                  │
+│  4. CLUSTERING           ▼                                  │
+│     ┌───────────────────────────────────────────┐          │
+│     │  ШАГ 1: Кластеризация по УГЛУ             │          │
+│     │         (находим группы параллельных)      │          │
+│     │                                           │          │
+│     │  [═══] [═══] [═══]  ← угол ~0°            │          │
+│     │    [╱] [╱] [╱]      ← угол ~15°           │          │
+│     │      [╲] [╲]        ← угол ~-10°          │          │
+│     └───────────────────────────────────────────┘          │
+│                          │                                  │
+│                          ▼                                  │
+│     ┌───────────────────────────────────────────┐          │
+│     │  ШАГ 2: Кластеризация по D                │          │
+│     │         (находим коллинеарные)             │          │
+│     │                                           │          │
+│     │  Параллельные линии с близким d           │          │
+│     │  лежат на ОДНОЙ прямой:                   │          │
+│     │                                           │          │
+│     │  ───────  ─────  ───────  (d ≈ 100)       │          │
+│     │                                           │          │
+│     │  ════════════════════════ (d ≈ 200)       │          │
+│     └───────────────────────────────────────────┘          │
+│                          │                                  │
+│  5. SCORING              ▼                                  │
+│     ┌───────────────────────────────────────────┐          │
+│     │  score = totalLength × √segmentCount      │          │
+│     │        × (0.7 + 0.3 × angleBonus)         │          │
+│     │                                           │          │
+│     │  angleBonus = 1 - |angle| / 45°           │          │
+│     │  (горизонтальные линии получают бонус)    │          │
+│     └───────────────────────────────────────────┘          │
+│                          │                                  │
+│  6. WEIGHTED MEDIAN      ▼                                  │
+│     ┌───────────────────────────────────────────┐          │
+│     │  Финальная линия строится по МЕДИАНЕ      │          │
+│     │  с весами = длина сегмента                │          │
+│     │                                           │          │
+│     │  medianAngle = weightedMedian(angles)     │          │
+│     │  medianD = weightedMedian(d_values)       │          │
+│     │                                           │          │
+│     │  → Устойчивость к выбросам!               │          │
+│     └───────────────────────────────────────────┘          │
+│                          │                                  │
+│  7. TEMPORAL SMOOTHING   ▼                                  │
+│     ┌───────────────────────────────────────────┐          │
+│     │  Медианный фильтр по N кадрам             │          │
+│     │  (убирает дрожание между кадрами)         │          │
+│     └───────────────────────────────────────────┘          │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Взвешенная медиана
+
+Почему медиана, а не среднее?
+
+```
+Пример: 5 сегментов с углами [0°, 2°, 1°, 45°, -1°]
+                              ↑       ↑
+                         нормальные  выброс
+
+Среднее = (0 + 2 + 1 + 45 + -1) / 5 = 9.4°  ← НЕПРАВИЛЬНО!
+Медиана = 1°                                 ← ПРАВИЛЬНО!
+```
+
+Взвешенная медиана учитывает длину сегментов:
+- Длинный сегмент (100px) с углом 0° важнее
+- Короткий сегмент (10px) с углом 45° — скорее шум
+
+---
+
+## API Reference
+
+### Конструктор
 
 ```javascript
-/**
- * Robust детекция горизонта через кластеризацию
- */
-function detectHorizon(src, config = {}) {
-  const width = src.cols;
-  const height = src.rows;
-  
-  // Настройки
-  const {
-    clusterTolerance = 15,      // Допуск по Y для кластеризации (px)
-    angleTolerance = 15,        // Допуск угла от горизонтали (градусы)
-    searchZoneTop = 0.1,        // Верхняя граница поиска (% высоты)
-    searchZoneBottom = 0.7,     // Нижняя граница поиска (% высоты)
-    minClusterSegments = 2,     // Минимум сегментов в кластере
-  } = config;
-  
-  // 1. Подготовка
-  let gray = new cv.Mat();
+new CVProcessor(videoElement, overlayCanvas, options)
+```
+
+| Параметр | Тип | Описание |
+|----------|-----|----------|
+| `videoElement` | `HTMLVideoElement \| HTMLImageElement` | Источник видео |
+| `overlayCanvas` | `HTMLCanvasElement` | Canvas для отрисовки |
+| `options` | `Object` | Настройки (см. [Конфигурация](#конфигурация)) |
+
+### Методы
+
+| Метод | Возврат | Описание |
+|-------|---------|----------|
+| `start()` | `Promise<boolean>` | Запуск обработки (ждёт OpenCV) |
+| `stop()` | `void` | Остановка обработки |
+| `toggle()` | `boolean` | Переключение вкл/выкл |
+| `isRunning()` | `boolean` | Проверка состояния |
+| `updateConfig(options)` | `void` | Обновление настроек |
+| `toggleLayer(name, enabled?)` | `void` | Вкл/выкл слоя (horizon, grid, walls) |
+
+### Свойства
+
+| Свойство | Тип | Описание |
+|----------|-----|----------|
+| `lastResult` | `Object` | Результат последней обработки |
+| `config` | `Object` | Текущая конфигурация |
+| `onProcess` | `Function` | Callback после обработки кадра |
+| `onError` | `Function` | Callback при ошибке |
+
+### Результат (lastResult)
+
+```javascript
+{
+  horizon: {
+    y: 120,           // Y-координата в центре экрана (px)
+    angle: -2.5,      // Угол наклона (градусы)
+    d: 85.3,          // Параметр прямой
+    segments: [...],  // Массив сегментов кластера
+    confidence: 0.85, // Уверенность (0..1)
+    segmentCount: 7,  // Количество сегментов
+    totalLength: 450  // Суммарная длина (px)
+  },
+  walls: [
+    { x1, y1, x2, y2, angle, length },
+    ...
+  ],
+  timestamp: 1699123456789
+}
+```
+
+---
+
+## Конфигурация
+
+Настройки в `config.js` → `AppConfig.CV`:
+
+```javascript
+CV: {
+  // ─────────────────────────────────────
+  // 📐 Разрешение обработки
+  // ─────────────────────────────────────
+  processWidth: 640,      // Ширина (px)
+  processHeight: 480,     // Высота (px)
+  processInterval: 100,   // Интервал (мс) = 10 FPS
+
+  // ─────────────────────────────────────
+  // 👁️ Слои визуализации
+  // ─────────────────────────────────────
+  showHorizon: true,      // Линия горизонта
+  showGrid: true,         // Перспективная сетка
+  showWalls: true,        // Вертикальные линии
+
+  // ─────────────────────────────────────
+  // 🔍 Canny edge detection
+  // ─────────────────────────────────────
+  cannyLow: 50,           // Нижний порог
+  cannyHigh: 150,         // Верхний порог
+
+  // ─────────────────────────────────────
+  // 📏 Hough line detection
+  // ─────────────────────────────────────
+  houghThreshold: 50,     // Минимум точек на линии
+  houghMinLength: 50,     // Минимальная длина (px)
+  houghMaxGap: 10,        // Максимальный разрыв (px)
+
+  // ─────────────────────────────────────
+  // 📐 Углы
+  // ─────────────────────────────────────
+  horizonMaxAngle: 45,       // Макс. наклон горизонта (°)
+  wallAngleTolerance: 15,    // Допуск для стен (°)
+  clusterAngleTolerance: 8,  // Допуск кластеризации (°)
+
+  // ─────────────────────────────────────
+  // 🎯 Кластеризация
+  // ─────────────────────────────────────
+  minClusterSegments: 1,  // Минимум сегментов
+  smoothFrames: 5,        // Буфер сглаживания
+
+  // ─────────────────────────────────────
+  // 🎨 Цвета
+  // ─────────────────────────────────────
+  colors: {
+    horizon: '#00FF00',
+    grid: 'rgba(0, 255, 255, 0.4)',
+    walls: '#FF6600'
+  }
+}
+```
+
+### Адаптивные параметры
+
+Некоторые параметры автоматически масштабируются под разрешение:
+
+| Параметр | Формула |
+|----------|---------|
+| `cannyLow` | `max(20, config × scale × 0.7)` |
+| `cannyHigh` | `max(60, config × scale × 0.8)` |
+| `houghMinLength` | `max(20, min(config, diagonal × 0.08))` |
+| `houghThreshold` | `max(20, min(config, √area × 0.15))` |
+| `clusterToleranceD` | `max(10, diagonal × 0.03)` |
+
+Где:
+- `scale = min(width/640, height/480)`
+- `diagonal = √(width² + height²)`
+- `area = width × height`
+
+---
+
+## Визуализация
+
+### Горизонт
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  HORIZON 85% (7 seg) ∠-2.5°                                │
+│  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│  ← пунктир (зелёный)
+│  ████  ██████  ████████  ███                               │  ← сегменты (полупрозрачные)
+│                                                             │
+│                                                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+- **Пунктирная линия** — финальный горизонт (яркость = confidence)
+- **Толстые сегменты** — линии кластера (для отладки)
+- **Метка** — confidence %, количество сегментов, угол
+
+### Сетка пола
+
+```
+                    VP (точка схода)
+                         •
+                        ╱│╲
+                       ╱ │ ╲
+                      ╱  │  ╲
+                     ╱   │   ╲
+────────────────────╱────│────╲────────────  ← параллельно горизонту
+                   ╱     │     ╲
+──────────────────╱──────│──────╲──────────
+                 ╱       │       ╲
+────────────────╱────────│────────╲────────
+               ╱         │         ╲
+```
+
+- Линии сходятся к точке схода (центр горизонта)
+- Горизонтальные линии параллельны горизонту (учитывают наклон!)
+- Нелинейное распределение: ближе к горизонту — плотнее
+
+### Стены
+
+```
+     │           │              │
+     │           │              │
+     │           │              │
+     │           │              │
+     │           │              │
+
+  (оранжевые вертикальные линии)
+```
+
+---
+
+## Оптимизация
+
+### Разрешение
+
+| Разрешение | FPS* | Точность | Рекомендация |
+|------------|------|----------|--------------|
+| 320×240 | ~30 | Низкая | Слабые устройства |
+| 640×480 | ~15 | Средняя | **Рекомендуется** |
+| 1280×720 | ~5 | Высокая | Мощные устройства |
+
+*FPS зависит от устройства и сложности сцены
+
+### Память
+
+**КРИТИЧНО!** OpenCV.js не имеет garbage collection для `cv.Mat`:
+
+```javascript
+// ВСЕГДА используй try/finally
+const gray = new cv.Mat();
+const edges = new cv.Mat();
+
+try {
   cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-  
-  let edges = new cv.Mat();
   cv.Canny(gray, edges, 50, 150);
-  
-  let lines = new cv.Mat();
-  cv.HoughLinesP(edges, lines, 1, Math.PI/180, 50, 30, 15);
-  
-  // 2. Собираем горизонтальные линии
-  const horizontalLines = [];
-  for (let i = 0; i < lines.rows; i++) {
-    const x1 = lines.data32S[i * 4];
-    const y1 = lines.data32S[i * 4 + 1];
-    const x2 = lines.data32S[i * 4 + 2];
-    const y2 = lines.data32S[i * 4 + 3];
-    
-    const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-    const avgY = (y1 + y2) / 2;
-    
-    // Фильтр: горизонтальные + в зоне поиска
-    const isHorizontal = Math.abs(angle) < angleTolerance || Math.abs(angle) > (180 - angleTolerance);
-    const inSearchZone = avgY > height * searchZoneTop && avgY < height * searchZoneBottom;
-    
-    if (isHorizontal && inSearchZone) {
-      const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-      horizontalLines.push({ x1, y1, x2, y2, avgY, length });
-    }
-  }
-  
-  // 3. Кластеризация по Y
-  const clusters = [];
-  const used = new Set();
-  
-  for (let i = 0; i < horizontalLines.length; i++) {
-    if (used.has(i)) continue;
-    
-    const cluster = [horizontalLines[i]];
-    used.add(i);
-    
-    // Добавляем соседние линии в кластер
-    for (let j = i + 1; j < horizontalLines.length; j++) {
-      if (used.has(j)) continue;
-      
-      // Проверяем близость по Y к любой линии в кластере
-      const line = horizontalLines[j];
-      const isNear = cluster.some(c => Math.abs(c.avgY - line.avgY) < clusterTolerance);
-      
-      if (isNear) {
-        cluster.push(line);
-        used.add(j);
-      }
-    }
-    
-    clusters.push(cluster);
-  }
-  
-  // 4. Оцениваем кластеры
-  const scoredClusters = clusters
-    .filter(c => c.length >= minClusterSegments)
-    .map(cluster => {
-      const totalLength = cluster.reduce((sum, l) => sum + l.length, 0);
-      const segmentCount = cluster.length;
-      const avgY = cluster.reduce((sum, l) => sum + l.avgY, 0) / segmentCount;
-      
-      // Score: длина × количество сегментов
-      // Бонус за больше сегментов (признак реального горизонта)
-      const score = totalLength * Math.sqrt(segmentCount);
-      
-      return { cluster, totalLength, segmentCount, avgY, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  
-  // Cleanup
-  gray.delete();
-  edges.delete();
-  lines.delete();
-  
-  // 5. Возвращаем лучший кластер
-  if (scoredClusters.length === 0) return null;
-  
-  const best = scoredClusters[0];
-  
-  return {
-    y: best.avgY,                    // Y-координата горизонта
-    segments: best.cluster,          // Все сегменты
-    confidence: Math.min(best.score / 1000, 1),  // 0..1
-    segmentCount: best.segmentCount,
-    totalLength: best.totalLength,
-  };
+  // ...
+} finally {
+  gray.delete();   // ОБЯЗАТЕЛЬНО!
+  edges.delete();  // ОБЯЗАТЕЛЬНО!
 }
 ```
 
-### Визуализация
+### Throttling
+
+Обработка ограничена `processInterval` (по умолчанию 100ms = 10 FPS):
 
 ```javascript
-function drawHorizon(ctx, horizon, canvasWidth) {
-  if (!horizon) return;
-  
-  const { y, confidence, segments } = horizon;
-  
-  // Основная линия горизонта
-  ctx.strokeStyle = `rgba(0, 255, 0, ${0.5 + confidence * 0.5})`;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([10, 5]);
-  
-  ctx.beginPath();
-  ctx.moveTo(0, y);
-  ctx.lineTo(canvasWidth, y);
-  ctx.stroke();
-  
-  ctx.setLineDash([]);
-  
-  // Отдельные сегменты (для отладки)
-  ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
-  ctx.lineWidth = 4;
-  segments.forEach(seg => {
-    ctx.beginPath();
-    ctx.moveTo(seg.x1, seg.y1);
-    ctx.lineTo(seg.x2, seg.y2);
-    ctx.stroke();
-  });
-  
-  // Метка с confidence
-  ctx.fillStyle = '#00FF00';
-  ctx.font = '12px monospace';
-  ctx.fillText(`HORIZON (${Math.round(confidence * 100)}%)`, 10, y - 5);
-}
-```
+// Увеличить FPS (больше нагрузка)
+processor.updateConfig({ processInterval: 50 });  // 20 FPS
 
-### Дополнительные улучшения
-
-**Временная фильтрация (сглаживание по кадрам):**
-
-```javascript
-class HorizonSmoother {
-  constructor(bufferSize = 5) {
-    this.buffer = [];
-    this.bufferSize = bufferSize;
-  }
-  
-  update(horizonY) {
-    if (horizonY === null) return this.get();
-    
-    this.buffer.push(horizonY);
-    if (this.buffer.length > this.bufferSize) {
-      this.buffer.shift();
-    }
-    
-    return this.get();
-  }
-  
-  get() {
-    if (this.buffer.length === 0) return null;
-    
-    // Медиана (устойчива к выбросам)
-    const sorted = [...this.buffer].sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
-  }
-}
+// Уменьшить FPS (экономия батареи)
+processor.updateConfig({ processInterval: 200 }); // 5 FPS
 ```
 
 ---
 
-## Детекция пола (сетка)
+## Отладка
 
-### Теория
-
-Для отрисовки сетки на полу нужна **точка схода (vanishing point)** — точка, где параллельные линии пола "сходятся" из-за перспективы.
-
-**Алгоритм:**
-1. Находим все линии
-2. Продлеваем их до пересечения
-3. Кластеризуем точки пересечения
-4. Находим доминантную точку схода
-5. Рисуем сетку от этой точки
-
-### Упрощённый подход
-
-Для начала используем **фиксированную точку схода** в центре горизонта:
+### Консоль
 
 ```javascript
-function drawPerspectiveGrid(ctx, horizon, width, height) {
-  if (!horizon) return;
-  
-  // Точка схода — центр горизонта
-  const vpX = (horizon.x1 + horizon.x2) / 2;
-  const vpY = (horizon.y1 + horizon.y2) / 2;
-  
-  ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';  // cyan
-  ctx.lineWidth = 1;
-  
-  // Вертикальные линии сетки (от точки схода к низу)
-  const gridLines = 10;
-  const bottomY = height;
-  
-  for (let i = 0; i <= gridLines; i++) {
-    const t = i / gridLines;
-    const bottomX = t * width;
-    
-    ctx.beginPath();
-    ctx.moveTo(vpX, vpY);
-    ctx.lineTo(bottomX, bottomY);
-    ctx.stroke();
-  }
-  
-  // Горизонтальные линии сетки (с перспективой)
-  const horizonY = vpY;
-  const gridRows = 8;
-  
-  for (let i = 1; i <= gridRows; i++) {
-    // Нелинейное распределение (ближе к горизонту — плотнее)
-    const t = Math.pow(i / gridRows, 1.5);
-    const y = horizonY + t * (bottomY - horizonY);
-    
-    // Ширина линии зависит от расстояния до горизонта
-    const perspectiveScale = (y - horizonY) / (bottomY - horizonY);
-    const halfWidth = (width / 2) * perspectiveScale;
-    
-    ctx.beginPath();
-    ctx.moveTo(vpX - halfWidth, y);
-    ctx.lineTo(vpX + halfWidth, y);
-    ctx.stroke();
-  }
-}
-```
+// Включить отладку
+processor.onProcess = (result) => {
+  console.log('Horizon:', result.horizon);
+  console.log('Walls:', result.walls.length);
+};
 
----
-
-## Детекция стен
-
-### Теория
-
-Стены — это **вертикальные поверхности**. Детектируем:
-1. Вертикальные линии (углы стен)
-2. Вертикальные контуры
-
-### Код
-
-```javascript
-function detectWalls(src) {
-  let gray = new cv.Mat();
-  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-  
-  let edges = new cv.Mat();
-  cv.Canny(gray, edges, 50, 150);
-  
-  let lines = new cv.Mat();
-  cv.HoughLinesP(edges, lines, 1, Math.PI/180, 50, 80, 10);
-  
-  // Фильтруем вертикальные линии
-  let verticalLines = [];
-  for (let i = 0; i < lines.rows; i++) {
-    let x1 = lines.data32S[i * 4];
-    let y1 = lines.data32S[i * 4 + 1];
-    let x2 = lines.data32S[i * 4 + 2];
-    let y2 = lines.data32S[i * 4 + 3];
-    
-    let angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-    
-    // Вертикальные: угол близок к 90° или -90°
-    if (Math.abs(Math.abs(angle) - 90) < 15) {
-      let length = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
-      verticalLines.push({ x1, y1, x2, y2, length });
-    }
-  }
-  
-  gray.delete();
-  edges.delete();
-  lines.delete();
-  
-  return verticalLines;
-}
-
-function drawWalls(ctx, walls) {
-  ctx.strokeStyle = '#FF6600';  // оранжевый
-  ctx.lineWidth = 2;
-  
-  walls.forEach(wall => {
-    ctx.beginPath();
-    ctx.moveTo(wall.x1, wall.y1);
-    ctx.lineTo(wall.x2, wall.y2);
-    ctx.stroke();
-  });
-}
-```
-
----
-
-## Оптимизация производительности
-
-### 1. Уменьшение разрешения
-
-Обрабатывай уменьшенную копию:
-
-```javascript
-const PROCESS_WIDTH = 320;  // обрабатываем в 320px
-const PROCESS_HEIGHT = 240;
-
-let small = new cv.Mat();
-cv.resize(src, small, new cv.Size(PROCESS_WIDTH, PROCESS_HEIGHT));
-
-// ... обработка small ...
-
-// Масштабируем результаты обратно
-const scaleX = originalWidth / PROCESS_WIDTH;
-const scaleY = originalHeight / PROCESS_HEIGHT;
-```
-
-### 2. Throttling
-
-Не обрабатывай каждый кадр:
-
-```javascript
-let lastProcessTime = 0;
-const PROCESS_INTERVAL = 100;  // 10 FPS для CV
-
-function processFrame() {
-  const now = Date.now();
-  if (now - lastProcessTime < PROCESS_INTERVAL) return;
-  lastProcessTime = now;
-  
-  // ... обработка ...
-}
-```
-
-### 3. Web Worker
-
-Вынеси тяжёлую обработку в Worker:
-
-```javascript
-// main.js
-const cvWorker = new Worker('cv-worker.js');
-
-cvWorker.postMessage({ 
-  imageData: ctx.getImageData(0, 0, width, height) 
-});
-
-cvWorker.onmessage = (e) => {
-  const { horizon, grid, walls } = e.data;
-  drawOverlay(horizon, grid, walls);
+// Отследить ошибки
+processor.onError = (msg) => {
+  console.error('CV Error:', msg);
 };
 ```
 
-```javascript
-// cv-worker.js
-importScripts('opencv.js');
+### Визуализация сегментов
 
-onmessage = function(e) {
-  const { imageData } = e.data;
-  
-  // ... OpenCV обработка ...
-  
-  postMessage({ horizon, grid, walls });
-};
-```
+Сегменты кластера отображаются полупрозрачными линиями — это помогает понять, какие линии были объединены.
 
-### 4. Очистка памяти
-
-**КРИТИЧНО!** OpenCV.js не имеет garbage collection для Mat:
+### Проверка параметров
 
 ```javascript
-function process(src) {
-  let gray = new cv.Mat();
-  let edges = new cv.Mat();
-  
-  try {
-    // ... обработка ...
-    return result;
-  } finally {
-    // ВСЕГДА очищай!
-    gray.delete();
-    edges.delete();
-  }
-}
+// В консоли браузера
+console.log(window.cvProcessor?.lastResult);
+console.log(window.cvProcessor?.config);
 ```
-
----
-
-## Следующие шаги
-
-1. **[cv-processor.js](../data/cv-processor.js)** — модуль обработки
-2. **Интеграция в UI** — кнопка вкл/выкл CV
-3. **Настройки** — пороги детекции в config.js
-4. **Калибровка камеры** — для fisheye линз
 
 ---
 
 ## Полезные ссылки
 
 - [OpenCV.js Tutorials](https://docs.opencv.org/4.x/d5/d10/tutorial_js_root.html)
-- [OpenCV.js API Reference](https://docs.opencv.org/4.x/d5/d10/tutorial_js_root.html)
 - [Hough Line Transform](https://docs.opencv.org/4.x/d9/db0/tutorial_hough_lines.html)
 - [Canny Edge Detection](https://docs.opencv.org/4.x/da/d22/tutorial_py_canny.html)
+- [Hesse Normal Form](https://en.wikipedia.org/wiki/Hesse_normal_form)
