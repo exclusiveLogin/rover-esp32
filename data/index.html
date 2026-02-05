@@ -22,11 +22,18 @@
     <!-- Видео панель с джойстиками поверх -->
     <div class="video-panel">
       <div class="video-container">
-        <img id="video-feed" alt="Video Feed">
+        <!-- MJPEG стрим (ESP32, IP камеры) -->
+        <img id="video-feed" alt="Video Feed" crossorigin="anonymous">
+        <!-- Локальная вебка (getUserMedia) -->
+        <video id="video-local" autoplay playsinline muted></video>
+        
         <div class="video-overlay" id="video-overlay">
           <div class="loader"></div>
           <span>Загрузка стрима...</span>
         </div>
+        
+        <!-- 👁️ CV Overlay (OpenCV.js) -->
+        <canvas id="cv-overlay" class="cv-overlay"></canvas>
         
         <!-- 🎮 Джойстики поверх видео (DJI-style) -->
         <div class="joysticks-overlay" id="joysticks-overlay">
@@ -74,11 +81,17 @@
         <button id="stream-toggle" class="btn primary">
           <span class="icon">▶</span> Стрим
         </button>
+        <button id="webcam-btn" class="btn secondary" title="Использовать вебку устройства">
+          <span class="icon">🎥</span> Вебка
+        </button>
         <button id="photo-btn" class="btn secondary">
           <span class="icon">📷</span> Фото
         </button>
         <button id="led-btn" class="btn led">
           <span class="icon">💡</span> LED
+        </button>
+        <button id="cv-btn" class="btn cv" title="Computer Vision (OpenCV.js)">
+          <span class="icon">👁️</span> CV
         </button>
       </div>
     </div>
@@ -196,6 +209,11 @@
 
   <script src="/config.js"></script>
   <script src="/control.js"></script>
+  <script src="/cv-processor.js"></script>
   <script src="/script.js"></script>
+  
+  <!-- OpenCV.js (локальная копия, ~10MB) -->
+  <script async src="/opencv.js" 
+          onload="window.dispatchEvent(new Event('opencv-ready'))"></script>
 </body>
 </html>

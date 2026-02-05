@@ -25,6 +25,20 @@ window.AppConfig = {
   // Порт стрима
   STREAM_PORT: 81,
   
+  // Путь к стриму (для IP Webcam и т.д.)
+  // ESP32: "/stream", IP Webcam Android: "/video", "/videofeed" и т.д.
+  STREAM_PATH: '/stream',
+  
+  // === MJPEG Proxy (обход CORS) ===
+  // Для источников без CORS (IP Webcam, внешние камеры)
+  // Работает только через dev-server!
+  
+  USE_PROXY: false,  // true = проксировать через dev-server
+  
+  // Полный URL внешнего стрима (для proxy)
+  // Пример: "http://192.168.1.50:8080/video"
+  EXTERNAL_STREAM_URL: null,
+  
   // === API Endpoints ===
   
   // Основной API управления
@@ -63,14 +77,60 @@ window.AppConfig = {
     errorDisplayTime: 3000,   // Время показа ошибки (мс)
   },
   
+  // === Computer Vision (OpenCV.js) ===
+  
+  CV: {
+    enabled: false,           // Включить CV обработку по умолчанию
+    
+    // Разрешение обработки (меньше = быстрее)
+    processWidth: 320,
+    processHeight: 240,
+    processInterval: 100,     // мс между кадрами (100 = 10 FPS)
+    
+    // Что отображать
+    showHorizon: true,        // Линия горизонта
+    showGrid: true,           // Сетка пола
+    showWalls: true,          // Вертикальные линии (стены)
+    
+    // Параметры детекции краёв (Canny)
+    cannyLow: 50,             // Нижний порог
+    cannyHigh: 150,           // Верхний порог
+    
+    // Параметры детекции линий (Hough)
+    houghThreshold: 50,       // Минимум точек для линии
+    houghMinLength: 50,       // Минимальная длина линии
+    houghMaxGap: 10,          // Максимальный разрыв
+    
+    // Фильтрация по углу (градусы)
+    horizonAngleTolerance: 15,  // Отклонение от горизонтали
+    wallAngleTolerance: 15,     // Отклонение от вертикали
+    
+    // Кластеризация горизонта
+    clusterTolerance: 15,       // Допуск по Y для группировки линий (px)
+    minClusterSegments: 1,      // Минимум сегментов в кластере
+    horizonSmoothFrames: 5,     // Сглаживание по N кадрам
+    
+    // Цвета
+    horizonColor: '#00FF00',    // Зелёный
+    gridColor: 'rgba(0, 255, 255, 0.4)',  // Cyan полупрозрачный
+    wallsColor: '#FF6600',      // Оранжевый
+  },
+  
   // === Утилиты ===
   
   /**
-   * Получить полный URL стрима
+   * Получить полный URL стрима (с учётом proxy)
    */
   getStreamUrl() {
+    // Если задан внешний URL и включён proxy
+    if (this.USE_PROXY && this.EXTERNAL_STREAM_URL) {
+      return `/proxy/stream?url=${encodeURIComponent(this.EXTERNAL_STREAM_URL)}`;
+    }
+    
+    // Прямой URL
     const videoHost = this.VIDEO_HOST || this.ESP32_HOST;
-    return `http://${videoHost}:${this.STREAM_PORT}/stream`;
+    const streamPath = this.STREAM_PATH || '/stream';
+    return `http://${videoHost}:${this.STREAM_PORT}${streamPath}`;
   },
   
   /**
@@ -87,4 +147,51 @@ window.AppConfig = {
   getApiUrl(endpoint) {
     return `${this.getApiBase()}${endpoint}`;
   },
+  
+  // === Сохранение настроек (localStorage) ===
+  
+  /**
+   * Сохранить текущие настройки в localStorage
+   * Использование: AppConfig.save()
+   */
+  save() {
+    const toSave = {
+      ESP32_HOST: this.ESP32_HOST,
+      VIDEO_HOST: this.VIDEO_HOST,
+      STREAM_PORT: this.STREAM_PORT,
+      STREAM_PATH: this.STREAM_PATH,
+      USE_PROXY: this.USE_PROXY,
+      EXTERNAL_STREAM_URL: this.EXTERNAL_STREAM_URL,
+    };
+    localStorage.setItem('AppConfig', JSON.stringify(toSave));
+    console.log('✅ Настройки сохранены:', toSave);
+  },
+  
+  /**
+   * Загрузить настройки из localStorage
+   * Вызывается автоматически при загрузке страницы
+   */
+  load() {
+    const saved = localStorage.getItem('AppConfig');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        Object.assign(this, parsed);
+        console.log('📦 Настройки загружены из localStorage:', parsed);
+      } catch (e) {
+        console.warn('⚠️ Ошибка загрузки настроек:', e);
+      }
+    }
+  },
+  
+  /**
+   * Сбросить к дефолтным значениям
+   */
+  reset() {
+    localStorage.removeItem('AppConfig');
+    console.log('🗑️ Настройки сброшены. Перезагрузите страницу.');
+  },
 };
+
+// Автозагрузка сохранённых настроек
+window.AppConfig.load();

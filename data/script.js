@@ -6,8 +6,10 @@
 
   // === Элементы DOM ===
   const videoFeed = document.getElementById('video-feed');
+  const videoLocal = document.getElementById('video-local');
   const videoOverlay = document.getElementById('video-overlay');
   const streamToggle = document.getElementById('stream-toggle');
+  const webcamBtn = document.getElementById('webcam-btn');
   const photoBtn = document.getElementById('photo-btn');
   const ledBtn = document.getElementById('led-btn');
   const connectionStatus = document.getElementById('connection-status');
@@ -19,6 +21,8 @@
 
   // === Состояние ===
   let isStreaming = false;
+  let isWebcamActive = false;
+  let webcamStream = null;
   let ledState = false;
   let reconnectTimer = null;
 
@@ -28,6 +32,7 @@
     
     // События кнопок
     streamToggle.addEventListener('click', toggleStream);
+    webcamBtn.addEventListener('click', toggleWebcam);
     photoBtn.addEventListener('click', takePhoto);
     ledBtn.addEventListener('click', toggleLed);
 
@@ -47,6 +52,8 @@
     if (isStreaming) return;
     
     showOverlay('Подключение к стриму...');
+    // CORS: установить ДО src для cross-origin доступа (нужно для OpenCV.js)
+    videoFeed.crossOrigin = 'anonymous';
     // Добавляем timestamp чтобы избежать кэширования при переподключении
     videoFeed.src = streamUrl + '?t=' + Date.now();
     isStreaming = true;
@@ -90,6 +97,7 @@
     clearReconnectTimer();
     reconnectTimer = setTimeout(() => {
       if (isStreaming) {
+        videoFeed.crossOrigin = 'anonymous';
         videoFeed.src = streamUrl + '?t=' + Date.now();
       }
     }, window.AppConfig.UI.reconnectDelay);
@@ -102,6 +110,84 @@
     }
   }
 
+  // === ВЕБКА (getUserMedia) ===
+  // Локальный источник видео — CORS не нужен!
+  
+  async function startWebcam() {
+    if (isWebcamActive) return;
+    
+    // Останавливаем MJPEG стрим если активен
+    if (isStreaming) stopStream();
+    
+    showOverlay('Запрос доступа к камере...');
+    
+    try {
+      webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',  // Задняя камера на телефоне
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      });
+      
+      videoLocal.srcObject = webcamStream;
+      videoLocal.classList.add('active');
+      videoFeed.classList.add('hidden');
+      
+      isWebcamActive = true;
+      hideOverlay();
+      setConnectionStatus('connected', 'Вебка');
+      streamStatusDisplay.textContent = 'Вебка активна';
+      streamUrlDisplay.textContent = 'getUserMedia (локально)';
+      
+      webcamBtn.classList.add('active');
+      streamToggle.classList.remove('active');
+      
+      console.log('🎥 Вебка запущена');
+      
+    } catch (err) {
+      console.error('Webcam error:', err);
+      showOverlay('Ошибка доступа к камере');
+      setConnectionStatus('error', err.message);
+    }
+  }
+  
+  function stopWebcam() {
+    if (!isWebcamActive) return;
+    
+    if (webcamStream) {
+      webcamStream.getTracks().forEach(track => track.stop());
+      webcamStream = null;
+    }
+    
+    videoLocal.srcObject = null;
+    videoLocal.classList.remove('active');
+    videoFeed.classList.remove('hidden');
+    
+    isWebcamActive = false;
+    webcamBtn.classList.remove('active');
+    streamStatusDisplay.textContent = 'Остановлен';
+    streamUrlDisplay.textContent = streamUrl;
+    
+    console.log('🎥 Вебка остановлена');
+  }
+  
+  function toggleWebcam() {
+    isWebcamActive ? stopWebcam() : startWebcam();
+  }
+  
+  /**
+   * Получить текущий активный видео-элемент (для CV)
+   */
+  function getActiveVideoElement() {
+    if (isWebcamActive) return videoLocal;
+    return videoFeed;
+  }
+  
+  // Экспорт для CV
+  window.getActiveVideoElement = getActiveVideoElement;
+
   // === ФОТО ===
   function takePhoto() {
     const photoUrl = window.AppConfig.getApiUrl(window.AppConfig.PHOTO_API) + '?t=' + Date.now();
@@ -111,6 +197,7 @@
     if (wasStreaming) stopStream();
     
     showOverlay('Получение снимка...');
+    videoFeed.crossOrigin = 'anonymous';
     videoFeed.src = photoUrl;
     
     videoFeed.onload = function() {
@@ -860,11 +947,97 @@
     expoCtx.fillText('OUT', padding - 2, padding + 10);
   }
 
+  // ============================================================
+  // 👁️ COMPUTER VISION (OpenCV.js)
+  // ============================================================
+
+  let cvProcessor = null;
+  let cvReady = false;
+
+  /**
+   * Инициализация CV
+   */
+  function initCV() {
+    const cvBtn = document.getElementById('cv-btn');
+    const cvOverlay = document.getElementById('cv-overlay');
+    
+    if (!cvBtn || !cvOverlay) {
+      console.warn('CV elements not found');
+      return;
+    }
+
+    // Слушаем загрузку OpenCV.js
+    window.addEventListener('opencv-ready', () => {
+      // Ждём пока cv.Mat будет доступен
+      const checkReady = setInterval(() => {
+        if (typeof cv !== 'undefined' && cv.Mat) {
+          clearInterval(checkReady);
+          cvReady = true;
+          cvBtn.classList.remove('loading');
+          console.log('✅ OpenCV.js loaded');
+        }
+      }, 100);
+    });
+
+    // Кнопка CV
+    cvBtn.addEventListener('click', toggleCV);
+    
+    // Пометим кнопку как "загружается"
+    cvBtn.classList.add('loading');
+    cvBtn.title = 'OpenCV.js загружается...';
+
+    console.log('👁️ CV module initialized (waiting for OpenCV.js)');
+  }
+
+  /**
+   * Включение/выключение CV
+   */
+  function toggleCV() {
+    const cvBtn = document.getElementById('cv-btn');
+    const cvOverlay = document.getElementById('cv-overlay');
+    
+    if (!cvReady) {
+      console.warn('OpenCV.js not ready yet');
+      cvBtn.title = 'OpenCV.js ещё загружается...';
+      return;
+    }
+
+    // Получаем текущий активный видео-элемент
+    const activeVideo = getActiveVideoElement();
+
+    // Пересоздаём процессор если источник изменился
+    if (cvProcessor && cvProcessor.video !== activeVideo) {
+      cvProcessor.stop();
+      cvProcessor = null;
+    }
+
+    if (!cvProcessor) {
+      // Создаём процессор с текущим источником
+      cvProcessor = new CVProcessor(activeVideo, cvOverlay, {
+        ...window.AppConfig.CV,
+        onProcess: (result) => {
+          // Можно добавить обработку результатов
+        },
+        onError: (err) => {
+          console.error('CV error:', err);
+        }
+      });
+    }
+
+    // Toggle
+    const isRunning = cvProcessor.toggle();
+    cvBtn.classList.toggle('active', isRunning);
+    cvBtn.title = isRunning ? 'CV включён' : 'CV выключён';
+    
+    console.log(`👁️ CV ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
+  }
+
   // === Запуск ===
   document.addEventListener('DOMContentLoaded', () => {
     init();
     initDriveControls();
     initJoysticks();
     initSettings();
+    initCV();
   });
 })();

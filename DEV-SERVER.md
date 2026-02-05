@@ -2,17 +2,11 @@
 
 Локальный HTTP сервер для разработки фронтенда **без загрузки на ESP32**.
 
+**Фичи:**
+- 📁 Раздача статики из `/data`
+- 🔄 **MJPEG Proxy** — обход CORS для любых источников (IP Webcam и т.д.)
+
 ## Быстрый старт
-
-### Python (рекомендуется)
-
-```bash
-python dev-server.py
-# или с указанием порта
-python dev-server.py 3000
-```
-
-### Node.js
 
 ```bash
 node dev-server.js
@@ -49,6 +43,10 @@ node dev-server.js 3000
 ```
 Rover/
 ├── data/              ← Статика (HTML, CSS, JS)
+│   ├── cv-processor.js  ← OpenCV.js модуль (опционально)
+│   └── config.js        ← Все настройки
+├── docs/
+│   └── OPENCV-GUIDE.md  ← Туториал по компьютерному зрению
 ├── dev-server.py      ← Python сервер
 ├── dev-server.js      ← Node.js сервер
 └── DEV-SERVER.md      ← Этот файл
@@ -85,3 +83,86 @@ location.reload();
 ```javascript
 AppConfig.CONTROL.expo = 0.5;  // +50%
 ```
+
+## 🔄 MJPEG Proxy (обход CORS)
+
+Для источников без CORS (IP Webcam на Android, внешние камеры) используй proxy.
+
+### Настройка в config.js
+
+```javascript
+// Включить proxy
+AppConfig.USE_PROXY = true;
+
+// Указать URL внешнего стрима
+AppConfig.EXTERNAL_STREAM_URL = 'http://192.168.1.50:8080/video';
+
+// Перезагрузить страницу
+location.reload();
+```
+
+### Или через консоль (временно)
+
+```javascript
+AppConfig.USE_PROXY = true;
+AppConfig.EXTERNAL_STREAM_URL = 'http://192.168.1.50:8080/video';
+location.reload();
+```
+
+### Примеры URL для разных приложений
+
+| Приложение | URL |
+|------------|-----|
+| IP Webcam (Android) | `http://IP:8080/video` |
+| DroidCam | `http://IP:4747/video` |
+| ESP32-CAM | `http://IP:81/stream` |
+
+### Прямой proxy URL
+
+Можно также напрямую открыть:
+```
+http://localhost:8080/proxy/stream?url=http://192.168.1.50:8080/video
+```
+
+---
+
+## 👁️ Computer Vision (OpenCV.js)
+
+CV обработка **полностью опциональна** и работает в браузере без дополнительных серверов.
+
+### Установка OpenCV.js
+
+OpenCV.js (~11MB) не включён в git. Скачай перед использованием:
+
+```powershell
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://docs.opencv.org/4.x/opencv.js" -OutFile "data/opencv.js"
+```
+
+```bash
+# Linux/macOS
+curl -L "https://docs.opencv.org/4.x/opencv.js" -o data/opencv.js
+```
+
+### Включение CV
+
+```javascript
+// В консоли браузера
+AppConfig.CV.enabled = true;
+```
+
+### Настройка параметров
+
+```javascript
+// Изменить чувствительность детекции
+AppConfig.CV.cannyLow = 30;
+AppConfig.CV.cannyHigh = 100;
+
+// Отключить отдельные слои
+AppConfig.CV.showGrid = false;
+AppConfig.CV.showWalls = false;
+```
+
+### Документация
+
+Подробный туториал: [docs/OPENCV-GUIDE.md](docs/OPENCV-GUIDE.md)

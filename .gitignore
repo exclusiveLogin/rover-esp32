@@ -3,3 +3,6 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# OpenCV.js (~11MB) - скачать: curl -L "https://docs.opencv.org/4.x/opencv.js" -o data/opencv.js
+data/opencv.js

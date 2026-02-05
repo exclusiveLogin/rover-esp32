@@ -106,11 +106,24 @@ main {
   aspect-ratio: 4/3;
 }
 
-#video-feed {
+#video-feed,
+#video-local {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+#video-local {
+  display: none;  /* Скрыт по умолчанию */
+}
+
+#video-local.active {
+  display: block;
+}
+
+#video-feed.hidden {
+  display: none;
 }
 
 /* === Video Overlay === */
@@ -136,6 +149,16 @@ main {
 .video-overlay span {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+/* === CV Overlay (OpenCV.js) === */
+.cv-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
 }
 
 /* === Loader === */
@@ -217,6 +240,27 @@ main {
   background: var(--warning);
   color: #000;
   border-color: var(--warning);
+}
+
+.btn.cv {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-tertiary);
+}
+
+.btn.cv:hover {
+  border-color: var(--success);
+}
+
+.btn.cv.active {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
+}
+
+.btn.cv.loading {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 /* === Info Panel === */
