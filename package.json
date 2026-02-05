@@ -7,7 +7,7 @@
     "pio": "/home/serenity/.platformio/penv/bin/pio"
   },
   "scripts": {
-    "dev": "npx serve data --cors -l 8080",
+    "dev": "node dev-server.js",
     "build": "$npm_package_config_pio run",
     "upload": "$npm_package_config_pio run --target upload",
     "fs:build": "$npm_package_config_pio run --target buildfs",

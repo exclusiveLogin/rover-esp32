@@ -33,11 +33,11 @@ window.AppConfig = {
   // Для источников без CORS (IP Webcam, внешние камеры)
   // Работает только через dev-server!
   
-  USE_PROXY: false,  // true = проксировать через dev-server
+  USE_PROXY: true,  // true = проксировать через dev-server
   
   // Полный URL внешнего стрима (для proxy)
   // Пример: "http://192.168.1.50:8080/video"
-  EXTERNAL_STREAM_URL: null,
+  EXTERNAL_STREAM_URL: "http://192.168.31.135:8080",
   
   // === API Endpoints ===
   
