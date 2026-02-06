@@ -59,7 +59,8 @@ window.AppConfig = {
     throttleMs: 1000,         // Throttle: heartbeat раз в 1 сек
     deadzone: 20,             // Мёртвая зона для X/Y
     maxValue: 255,            // Максимальное значение X/Y
-    expo: 0,                  // Expo кривая: -1..+1 (0 = линейная)
+    expoX: 0,                 // Expo кривая руля (X): -1..+1 (0 = линейная)
+    expoY: 0,                 // Expo кривая газа (Y): -1..+1 (0 = линейная)
   },
   
   // === Джойстики ===

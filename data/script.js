@@ -698,7 +698,7 @@
       rawX: state.x, rawY: state.y,
       expoX: state.expoX, expoY: state.expoY
     } : null;
-    drawExpoGraph(currentExpo, points);
+    drawExpoGraph(points);
   }
 
   /**
@@ -728,7 +728,8 @@
 
   let expoCanvas = null;
   let expoCtx = null;
-  let currentExpo = 0;  // Текущее значение expo для перерисовки
+  let currentExpoX = 0;  // Текущее значение expo X для перерисовки
+  let currentExpoY = 0;  // Текущее значение expo Y для перерисовки
 
   /**
    * Инициализация настроек
@@ -746,51 +747,69 @@
       });
     });
 
-    // === Expo slider ===
-    const slider = document.getElementById('expo-slider');
-    const valueEl = document.getElementById('expo-value');
-    const labelEl = document.getElementById('expo-label');
-    
-    if (slider) {
-      slider.addEventListener('input', () => {
-        const value = parseInt(slider.value);
-        currentExpo = value / 100;  // Сохраняем для перерисовки с точками
-        
-        // Обновляем UI
-        if (valueEl) valueEl.textContent = `${value}%`;
-        if (labelEl) {
-          if (value > 0) {
-            labelEl.textContent = 'Мягкий центр';
-          } else if (value < 0) {
-            labelEl.textContent = 'Резкий центр';
-          } else {
-            labelEl.textContent = '—';
-          }
-        }
-        
-        // Применяем к ControlService
-        if (controlService) {
-          controlService.setExpo(value);
-        }
-        
-        // Перерисовываем график (с текущими точками если есть)
-        const state = controlService ? controlService.getState() : null;
-        const points = state && state.active ? {
-          rawX: state.x, rawY: state.y,
-          expoX: state.expoX, expoY: state.expoY
-        } : null;
-        drawExpoGraph(currentExpo, points);
-      });
-    }
+    // === Expo sliders (раздельно X / Y) ===
+    setupExpoSlider('x');
+    setupExpoSlider('y');
 
     // === Инициализация canvas для графика ===
     expoCanvas = document.getElementById('expo-graph');
     if (expoCanvas) {
       expoCtx = expoCanvas.getContext('2d');
-      drawExpoGraph(0);
+      drawExpoGraph();
     }
 
     console.log('⚙️ Settings initialized');
+  }
+
+  /**
+   * Настройка одного expo-слайдера
+   * @param {'x'|'y'} axis
+   */
+  function setupExpoSlider(axis) {
+    const slider = document.getElementById(`expo-slider-${axis}`);
+    const valueEl = document.getElementById(`expo-value-${axis}`);
+    const labelEl = document.getElementById(`expo-label-${axis}`);
+    
+    if (!slider) return;
+
+    slider.addEventListener('input', () => {
+      const value = parseInt(slider.value);
+      const norm = value / 100;
+
+      if (axis === 'x') currentExpoX = norm;
+      else currentExpoY = norm;
+
+      // Обновляем inline значение (компактно)
+      if (valueEl) valueEl.textContent = value;
+
+      // Обновляем лейбл графика в settings
+      if (labelEl) {
+        const prefix = axis === 'x' ? 'X: ' : 'Y: ';
+        if (value > 0) labelEl.textContent = prefix + value + '% мягк';
+        else if (value < 0) labelEl.textContent = prefix + value + '% резк';
+        else labelEl.textContent = prefix + '—';
+      }
+
+      // Применяем к ControlService
+      if (controlService) {
+        controlService.setExpo(axis, value);
+      }
+
+      // Перерисовываем график
+      redrawExpoGraph();
+    });
+  }
+
+  /**
+   * Перерисовка графика с текущими точками
+   */
+  function redrawExpoGraph() {
+    const state = controlService ? controlService.getState() : null;
+    const points = state && state.active ? {
+      rawX: state.x, rawY: state.y,
+      expoX: state.expoX, expoY: state.expoY
+    } : null;
+    drawExpoGraph(points);
   }
 
   /**
@@ -840,14 +859,10 @@
   }
 
   /**
-   * Отрисовка графика expo кривой
-   */
-  /**
-   * Отрисовка графика expo с опциональными точками текущих значений
-   * @param {number} expo - Значение expo (-1..+1)
+   * Отрисовка графика expo с двумя кривыми (X и Y)
    * @param {object} points - Опционально: { rawX, rawY, expoX, expoY } для отрисовки точек
    */
-  function drawExpoGraph(expo, points = null) {
+  function drawExpoGraph(points = null) {
     if (!expoCtx || !expoCanvas) return;
 
     const w = expoCanvas.width;
@@ -855,6 +870,7 @@
     const padding = 10;
     const graphW = w - 2 * padding;
     const graphH = h - 2 * padding;
+    const steps = 50;
 
     // Очистка
     expoCtx.fillStyle = '#0f0f0f';
@@ -871,72 +887,64 @@
     expoCtx.stroke();
 
     // Линейная кривая (эталон)
-    expoCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    expoCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     expoCtx.lineWidth = 1;
     expoCtx.beginPath();
     expoCtx.moveTo(padding, h - padding);
     expoCtx.lineTo(w - padding, padding);
     expoCtx.stroke();
 
-    // Expo кривая
-    expoCtx.strokeStyle = '#4a9eff';
-    expoCtx.lineWidth = 2;
-    expoCtx.beginPath();
-
-    const steps = 50;
-    for (let i = 0; i <= steps; i++) {
-      const input = i / steps;
-      const output = ControlService.calcExpoPoint(input, expo);
-      
-      const x = padding + input * graphW;
-      const y = h - padding - output * graphH;
-      
-      if (i === 0) {
-        expoCtx.moveTo(x, y);
-      } else {
-        expoCtx.lineTo(x, y);
+    // --- Рисуем кривую ---
+    const drawCurve = (expo, color, dash = []) => {
+      expoCtx.strokeStyle = color;
+      expoCtx.lineWidth = 2;
+      expoCtx.setLineDash(dash);
+      expoCtx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const input = i / steps;
+        const output = ControlService.calcExpoPoint(input, expo);
+        const x = padding + input * graphW;
+        const y = h - padding - output * graphH;
+        if (i === 0) expoCtx.moveTo(x, y);
+        else expoCtx.lineTo(x, y);
       }
-    }
-    expoCtx.stroke();
+      expoCtx.stroke();
+      expoCtx.setLineDash([]);
+    };
+
+    // Кривая X (оранжевая, сплошная)
+    if (currentExpoX !== 0) drawCurve(currentExpoX, '#ff9800');
+    // Кривая Y (зелёная, пунктир)
+    if (currentExpoY !== 0) drawCurve(currentExpoY, '#4caf50', [4, 3]);
 
     // === Точки текущих значений ===
     if (points) {
       const maxVal = 255;
 
-      // Функция для отрисовки точки
-      const drawPoint = (rawVal, expoVal, color, label) => {
-        // Нормализуем (берём абсолютное значение, т.к. график 0..1)
+      const drawPoint = (rawVal, expoVal, color, label, expo) => {
         const inputNorm = Math.abs(rawVal) / maxVal;
         const outputNorm = Math.abs(expoVal) / maxVal;
-
         const px = padding + inputNorm * graphW;
         const py = h - padding - outputNorm * graphH;
 
-        // Точка
         expoCtx.beginPath();
         expoCtx.arc(px, py, 5, 0, Math.PI * 2);
         expoCtx.fillStyle = color;
         expoCtx.fill();
-
-        // Обводка
         expoCtx.strokeStyle = '#fff';
         expoCtx.lineWidth = 1;
         expoCtx.stroke();
 
-        // Подпись
         expoCtx.fillStyle = color;
         expoCtx.font = 'bold 9px sans-serif';
         expoCtx.fillText(label, px + 7, py + 3);
       };
 
-      // Точка X (оранжевая)
       if (points.rawX !== undefined && points.rawX !== 0) {
-        drawPoint(points.rawX, points.expoX, '#ff9800', 'X');
+        drawPoint(points.rawX, points.expoX, '#ff9800', 'X', currentExpoX);
       }
-
-      // Точка Y (зелёная)
       if (points.rawY !== undefined && points.rawY !== 0) {
-        drawPoint(points.rawY, points.expoY, '#4caf50', 'Y');
+        drawPoint(points.rawY, points.expoY, '#4caf50', 'Y', currentExpoY);
       }
     }
 
@@ -967,22 +975,35 @@
     }
 
     // Слушаем загрузку OpenCV.js
-    window.addEventListener('opencv-ready', () => {
-      // Ждём пока cv.Mat будет доступен
-      const checkReady = setInterval(() => {
-        if (typeof cv !== 'undefined' && cv.Mat) {
-          clearInterval(checkReady);
-          cvReady = true;
-          cvBtn.classList.remove('loading');
-          console.log('✅ OpenCV.js loaded');
-          
-          // Показываем секцию CV Debug когда OpenCV готов
-          const debugSection = document.getElementById('cv-debug-section');
-          if (debugSection) {
-            debugSection.style.display = 'block';
+    window.addEventListener('opencv-ready', async () => {
+      try {
+        // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
+        if (typeof cv !== 'undefined') {
+          if (cv instanceof Promise || typeof cv === 'function') {
+            cv = await cv;
           }
         }
-      }, 100);
+
+        // Ждём пока cv.Mat будет доступен
+        const checkReady = setInterval(() => {
+          if (typeof cv !== 'undefined' && cv.Mat) {
+            clearInterval(checkReady);
+            cvReady = true;
+            cvBtn.classList.remove('loading');
+            console.log('✅ OpenCV.js loaded');
+            
+            // Показываем секцию CV Debug когда OpenCV готов
+            const debugSection = document.getElementById('cv-debug-section');
+            if (debugSection) {
+              debugSection.style.display = 'block';
+            }
+          }
+        }, 100);
+      } catch (e) {
+        console.error('❌ OpenCV.js init error:', e);
+        cvBtn.classList.remove('loading');
+        cvBtn.title = 'OpenCV.js ошибка загрузки';
+      }
     });
 
     // Кнопка CV

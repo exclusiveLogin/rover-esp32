@@ -121,21 +121,31 @@
         </div>
       </div>
 
-      <!-- Expo кривая -->
-      <div class="setting-row">
-        <span class="setting-label">Expo</span>
-        <div class="expo-control">
-          <input type="range" id="expo-slider" min="-100" max="100" value="0" step="5">
-          <span class="expo-value" id="expo-value">0%</span>
+      <!-- Expo панель: слайдер Y | график | слайдер X -->
+      <div class="expo-panel">
+        <!-- Левый: Y (газ) -->
+        <div class="expo-axis expo-axis-y">
+          <span class="expo-axis-title">ГАЗ</span>
+          <input type="range" id="expo-slider-y" class="expo-vslider expo-y"
+                 min="-100" max="100" value="0" step="5">
+          <span class="expo-axis-value" id="expo-value-y">0</span>
         </div>
-      </div>
 
-      <!-- График expo -->
-      <div class="expo-graph-container">
-        <canvas id="expo-graph" width="150" height="150"></canvas>
-        <div class="expo-labels">
-          <span class="label-linear">Линейная</span>
-          <span class="label-expo" id="expo-label">—</span>
+        <!-- Центр: график -->
+        <div class="expo-graph-wrap">
+          <canvas id="expo-graph" width="150" height="150"></canvas>
+          <div class="expo-labels">
+            <span class="label-expo" id="expo-label-x" style="color:#ff9800">X: —</span>
+            <span class="label-expo" id="expo-label-y" style="color:#4caf50">Y: —</span>
+          </div>
+        </div>
+
+        <!-- Правый: X (руль) -->
+        <div class="expo-axis expo-axis-x">
+          <span class="expo-axis-title">РУЛЬ</span>
+          <input type="range" id="expo-slider-x" class="expo-vslider expo-x"
+                 min="-100" max="100" value="0" step="5">
+          <span class="expo-axis-value" id="expo-value-x">0</span>
         </div>
       </div>
 
@@ -237,8 +247,8 @@
   <script src="/cv-processor.js"></script>
   <script src="/script.js"></script>
   
-  <!-- OpenCV.js (CDN) -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" 
+  <!-- OpenCV.js (GitHub CDN via jsDelivr) -->
+  <script async src="https://cdn.jsdelivr.net/gh/exclusiveLogin/rover-esp32@main/opencv.js" 
           crossorigin="anonymous"
           onload="window.dispatchEvent(new Event('opencv-ready'))"></script>
 </body>

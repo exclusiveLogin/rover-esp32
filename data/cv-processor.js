@@ -129,12 +129,22 @@ class CVProcessor {
   // ==========================================================
   
   /** Проверка готовности OpenCV.js */
-  _checkOpenCV() {
-    if (typeof cv !== 'undefined' && cv.Mat) {
-      this._cvReady = true;
-      console.log('✅ CVProcessor: OpenCV.js ready');
-    } else {
+  async _checkOpenCV() {
+    try {
+      // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
+      if (typeof cv !== 'undefined') {
+        if (cv instanceof Promise || typeof cv === 'function') {
+          cv = await cv;
+        }
+        if (cv.Mat) {
+          this._cvReady = true;
+          console.log('✅ CVProcessor: OpenCV.js ready');
+          return;
+        }
+      }
       console.warn('⏳ CVProcessor: waiting for OpenCV.js...');
+    } catch (e) {
+      console.warn('⏳ CVProcessor: OpenCV.js not ready yet:', e.message);
     }
   }
   
@@ -148,11 +158,19 @@ class CVProcessor {
     
     const start = Date.now();
     while (Date.now() - start < timeout) {
-      if (typeof cv !== 'undefined' && cv.Mat) {
-        this._cvReady = true;
-        console.log('✅ CVProcessor: OpenCV.js loaded');
-        return true;
-      }
+      try {
+        // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
+        if (typeof cv !== 'undefined') {
+          if (cv instanceof Promise || typeof cv === 'function') {
+            cv = await cv;
+          }
+          if (cv.Mat) {
+            this._cvReady = true;
+            console.log('✅ CVProcessor: OpenCV.js loaded');
+            return true;
+          }
+        }
+      } catch (e) { /* WASM ещё инициализируется */ }
       await new Promise(r => setTimeout(r, 100));
     }
     

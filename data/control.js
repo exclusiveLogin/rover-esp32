@@ -28,7 +28,8 @@ class ControlService {
     throttleMs: 1000,         // Throttle: heartbeat раз в 1 сек (меньше CONTROL_TIMEOUT_MS 2 сек)
     deadzone: 20,             // Мёртвая зона для X/Y
     maxValue: 255,            // Максимальное значение X/Y
-    expo: 0,                  // Expo кривая: -1..+1 (0 = линейная)
+    expoX: 0,                 // Expo кривая руля (X): -1..+1 (0 = линейная)
+    expoY: 0,                 // Expo кривая газа (Y): -1..+1 (0 = линейная)
   };
 
   constructor(apiUrl = ControlService.DEFAULTS.apiUrl, options = {}) {
@@ -251,9 +252,9 @@ class ControlService {
     
     const thisRequestId = ++this._requestId;
     
-    // Применяем expo кривую
-    const expoX = this._applyExpo(x);
-    const expoY = this._applyExpo(y);
+    // Применяем expo кривую (раздельно для каждой оси)
+    const expoX = this._applyExpo(x, this.config.expoX);
+    const expoY = this._applyExpo(y, this.config.expoY);
     
     // Обновляем state (сырые + expo значения)
     this._updateState({
@@ -336,10 +337,10 @@ class ControlService {
    * expo = 0: линейная кривая
    * 
    * @param {number} value - Входное значение (-255..+255)
+   * @param {number} expo - Значение expo для данной оси (-1..+1)
    * @returns {number} - Обработанное значение
    */
-  _applyExpo(value) {
-    const expo = this.config.expo;
+  _applyExpo(value, expo) {
     if (expo === 0) return value;
     
     // Нормализуем в -1..+1
@@ -372,24 +373,32 @@ class ControlService {
   // ============================================================
 
   /**
-   * Установить expo кривую
+   * Установить expo кривую для оси
+   * @param {'x'|'y'|'both'} axis - Ось
    * @param {number} expo - Значение от -1 до +1 (или -100..+100, будет нормализовано)
    */
-  setExpo(expo) {
+  setExpo(axis, expo) {
     // Нормализуем если передано в процентах
     if (expo > 1 || expo < -1) {
       expo = expo / 100;
     }
     expo = this._clamp(expo, -1, 1);
-    this.config.expo = expo;
-    console.log(`📈 Expo set to ${(expo * 100).toFixed(0)}%`);
+
+    if (axis === 'x' || axis === 'both') {
+      this.config.expoX = expo;
+    }
+    if (axis === 'y' || axis === 'both') {
+      this.config.expoY = expo;
+    }
+    console.log(`📈 Expo ${axis.toUpperCase()} set to ${(expo * 100).toFixed(0)}%`);
   }
 
   /**
    * Получить текущий expo
+   * @param {'x'|'y'} axis
    */
-  getExpo() {
-    return this.config.expo;
+  getExpo(axis = 'x') {
+    return axis === 'y' ? this.config.expoY : this.config.expoX;
   }
 
   /**
