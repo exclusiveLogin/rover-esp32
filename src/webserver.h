@@ -9,9 +9,9 @@
 
 // --- Запуск серверов ---
 void webserverStartMain();       // Порт 80 — UI, API
-void webserverStartStream();     // Порт 81 — MJPEG стрим (вызывать на Core 0)
 
-// --- Задача стрим-сервера для xTaskCreatePinnedToCore ---
+// --- Стрим-сервер (Raw TCP, Round-Robin, порт 81) ---
+// Запускать как задачу на Core 0 через xTaskCreatePinnedToCore
 void streamServerTask(void* pvParameters);
 
 #endif // WEBSERVER_H

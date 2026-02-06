@@ -7,58 +7,139 @@
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
 
+#include <lwip/sockets.h>
+#include <lwip/netdb.h>
+
 // ============================================================
 // 🌐 HTTP серверы — реализация
 // ============================================================
 
-static httpd_handle_t mainHttpd   = NULL;
-static httpd_handle_t streamHttpd = NULL;
+static httpd_handle_t mainHttpd = NULL;
 
 // IR LED состояние
 static bool irLedOn = false;
 
 // ============================================================
-// 📹 MJPEG Стрим
+// 📹 MJPEG Стрим — Raw TCP, Round-Robin
 // ============================================================
 
-static esp_err_t streamHandler(httpd_req_t* req) {
-    #define BOUNDARY "----ESP32CAM_MJPEG"
-    static const char* CONTENT_TYPE  = "multipart/x-mixed-replace;boundary=" BOUNDARY;
-    static const char* PART_BOUNDARY = "\r\n--" BOUNDARY "\r\n";
-    static const char* PART_HEADER   = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+#define STREAM_MAX_CLIENTS 4
+#define STREAM_BOUNDARY    "----ESP32CAM"
+#define STREAM_FRAME_DELAY 50  // ~20 FPS базовая задержка
 
-    esp_err_t res = httpd_resp_set_type(req, CONTENT_TYPE);
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-    if (res != ESP_OK) return res;
+static int  streamClients[STREAM_MAX_CLIENTS];
+static int  streamClientCount = 0;
+static int  streamRRIndex     = 0;
 
-    Serial.printf("🎥 Стрим запущен на Core %d\n", xPortGetCoreID());
+// HTTP-ответ для нового MJPEG-клиента
+static const char STREAM_HTTP_RESPONSE[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY "\r\n"
+    "Access-Control-Allow-Origin: *\r\n"
+    "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n";
 
-    char partBuf[64];
+// Удалить клиента из массива по индексу
+static void streamRemoveClient(int idx) {
+    if (idx < 0 || idx >= streamClientCount) return;
+    
+    close(streamClients[idx]);
+    Serial.printf("🎥 Клиент #%d отключён (fd=%d)\n", idx, streamClients[idx]);
+    
+    // Сдвигаем массив
+    for (int i = idx; i < streamClientCount - 1; i++) {
+        streamClients[i] = streamClients[i + 1];
+    }
+    streamClientCount--;
+    
+    // Корректируем round-robin индекс
+    if (streamClientCount == 0) {
+        streamRRIndex = 0;
+    } else {
+        streamRRIndex = streamRRIndex % streamClientCount;
+    }
+    
+    Serial.printf("📊 Стрим-клиентов: %d\n", streamClientCount);
+}
+
+// Полная отправка буфера (обработка partial send)
+static bool streamSendAll(int fd, const char* buf, size_t len) {
+    size_t sent = 0;
+    while (sent < len) {
+        int n = send(fd, buf + sent, len - sent, MSG_NOSIGNAL);
+        if (n <= 0) return false;
+        sent += n;
+    }
+    return true;
+}
+
+// Принять новых клиентов (non-blocking)
+static void streamAcceptClients(int serverFd) {
+    struct sockaddr_in clientAddr;
+    socklen_t addrLen = sizeof(clientAddr);
+    
     while (true) {
-        camera_fb_t* fb = cameraCapture(100);
-        if (!fb) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+        int clientFd = accept(serverFd, (struct sockaddr*)&clientAddr, &addrLen);
+        if (clientFd < 0) break;  // EAGAIN — нет новых подключений
+        
+        if (streamClientCount >= STREAM_MAX_CLIENTS) {
+            // Отправляем 503 и закрываем
+            const char* busy = "HTTP/1.1 503 Service Unavailable\r\n\r\nMax stream clients reached\n";
+            send(clientFd, busy, strlen(busy), 0);
+            close(clientFd);
+            Serial.println("⚠️ Стрим: макс. клиентов, отклонён");
             continue;
         }
-
-        res = httpd_resp_send_chunk(req, PART_BOUNDARY, strlen(PART_BOUNDARY));
-        if (res == ESP_OK) {
-            size_t hlen = snprintf(partBuf, sizeof(partBuf), PART_HEADER, fb->len);
-            res = httpd_resp_send_chunk(req, partBuf, hlen);
+        
+        // Отправляем HTTP-заголовки MJPEG
+        if (!streamSendAll(clientFd, STREAM_HTTP_RESPONSE, strlen(STREAM_HTTP_RESPONSE))) {
+            close(clientFd);
+            continue;
         }
-        if (res == ESP_OK) {
-            res = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
-        }
-
-        esp_camera_fb_return(fb);
-        if (res != ESP_OK) break;
-
-        vTaskDelay(pdMS_TO_TICKS(50));  // ~20 FPS
+        
+        // Настраиваем сокет: таймаут на send
+        struct timeval tv;
+        tv.tv_sec = 2;
+        tv.tv_usec = 0;
+        setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        
+        // Добавляем в массив
+        streamClients[streamClientCount] = clientFd;
+        streamClientCount++;
+        
+        Serial.printf("🎥 Новый стрим-клиент (fd=%d), всего: %d\n", clientFd, streamClientCount);
     }
+}
 
-    Serial.println("🎥 Стрим остановлен");
-    return res;
+// Отправить кадр следующему клиенту (round-robin)
+static void streamSendFrame(camera_fb_t* fb) {
+    if (streamClientCount == 0) return;
+    
+    // Round-robin: берём текущего клиента
+    int idx = streamRRIndex;
+    int fd  = streamClients[idx];
+    
+    // Формируем MJPEG part
+    char partHeader[128];
+    int headerLen = snprintf(partHeader, sizeof(partHeader),
+        "\r\n--" STREAM_BOUNDARY "\r\n"
+        "Content-Type: image/jpeg\r\n"
+        "Content-Length: %u\r\n\r\n",
+        (unsigned)fb->len);
+    
+    // Отправляем заголовок + данные
+    bool ok = streamSendAll(fd, partHeader, headerLen) &&
+              streamSendAll(fd, (const char*)fb->buf, fb->len);
+    
+    if (!ok) {
+        // Клиент отвалился — удаляем
+        streamRemoveClient(idx);
+        // Не сдвигаем RR — следующий клиент уже на этом idx
+    } else {
+        // Сдвигаем round-robin
+        streamRRIndex = (streamRRIndex + 1) % streamClientCount;
+    }
 }
 
 // ============================================================
@@ -442,28 +523,74 @@ void webserverStartMain() {
     Serial.println("   🎮 /api/control — управление (с watchdog)");
 }
 
-void webserverStartStream() {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = HTTP_PORT_STREAM;
-    config.ctrl_port = 32769;
-    config.max_open_sockets = 4;
-    config.lru_purge_enable = true;
-    config.stack_size = 8192;
+void streamServerTask(void* pvParameters) {
+    Serial.printf("📹 Стрим-сервер запускается на Core %d...\n", xPortGetCoreID());
 
-    if (httpd_start(&streamHttpd, &config) != ESP_OK) {
-        Serial.println("❌ Ошибка запуска стрим-сервера");
+    // Создаём TCP-сервер
+    int serverFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverFd < 0) {
+        Serial.println("❌ Стрим: ошибка создания сокета");
+        vTaskDelete(NULL);
         return;
     }
 
-    httpd_uri_t uriStream = {"/stream", HTTP_GET, streamHandler, NULL};
-    httpd_register_uri_handler(streamHttpd, &uriStream);
+    // Разрешаем повторное использование адреса
+    int opt = 1;
+    setsockopt(serverFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    Serial.printf("📹 Стрим-сервер на порту %d, Core %d\n", HTTP_PORT_STREAM, xPortGetCoreID());
-}
+    // Привязка к порту
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port        = htons(HTTP_PORT_STREAM);
 
-void streamServerTask(void* pvParameters) {
-    webserverStartStream();
+    if (bind(serverFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        Serial.println("❌ Стрим: ошибка bind");
+        close(serverFd);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (listen(serverFd, STREAM_MAX_CLIENTS) < 0) {
+        Serial.println("❌ Стрим: ошибка listen");
+        close(serverFd);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // Non-blocking accept
+    int flags = fcntl(serverFd, F_GETFL, 0);
+    fcntl(serverFd, F_SETFL, flags | O_NONBLOCK);
+
+    Serial.printf("📹 Стрим-сервер слушает порт %d (макс. %d клиентов, round-robin)\n",
+                  HTTP_PORT_STREAM, STREAM_MAX_CLIENTS);
+
+    // === Основной цикл: accept + capture + round-robin send ===
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // 1. Принимаем новых клиентов (non-blocking)
+        streamAcceptClients(serverFd);
+
+        // 2. Если нет клиентов — просто ждём
+        if (streamClientCount == 0) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
+        // 3. Захват кадра
+        camera_fb_t* fb = cameraCapture(200);
+        if (!fb) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        // 4. Отправка по round-robin
+        streamSendFrame(fb);
+
+        // 5. Возврат буфера камеры
+        esp_camera_fb_return(fb);
+
+        // 6. Задержка (~20 FPS базовая)
+        vTaskDelay(pdMS_TO_TICKS(STREAM_FRAME_DELAY));
     }
 }
