@@ -37,7 +37,7 @@ window.AppConfig = {
   
   // Полный URL внешнего стрима (для proxy)
   // Пример: "http://192.168.1.50:8080/video"
-  EXTERNAL_STREAM_URL: "http://192.168.31.135:8080",
+  EXTERNAL_STREAM_URL: "http://192.168.31.196:8080",
   
   // === API Endpoints ===
   

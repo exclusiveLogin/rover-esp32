@@ -463,7 +463,7 @@ class CVProcessor {
       // Hough: адаптируем под размер изображения
       houghThreshold: Math.max(20, Math.min(config.houghThreshold, Math.sqrt(w * h) * 0.15)),
       houghMinLength: Math.max(20, Math.min(config.houghMinLength, diagonal * 0.08)),
-      houghMaxGap: Math.max(5, Math.min(config.houghMaxGap, w * 0.03)),
+      houghMaxGap: Math.max(5, Math.min(config.houghMaxGap, w * 0.05)),
       
       // Кластеризация
       clusterToleranceD: Math.max(10, diagonal * 0.03),  // 3% от диагонали
@@ -679,12 +679,20 @@ class CVProcessor {
     const smoothY = this._smoothValue('horizonY', centerY);
     const smoothAngle = this._smoothValue('horizonAngle', medianAngle);
     
+    // Confidence: нормализуем относительно диагонали изображения
+    // Ожидаем: totalLength ≈ diagonal/2, segments ≥ 3 для хорошей уверенности
+    // Score = totalLength × √segments × angleBonus
+    // При "идеальном" горизонте: score ≈ (diagonal/2) × √3 × 1.0 ≈ diagonal × 0.87
+    const diagonal = Math.sqrt(width * width + height * height);
+    const expectedScore = diagonal * 0.8;  // ~80% диагонали как "отличный" score
+    const confidence = Math.min(score / expectedScore, 1);
+    
     return {
       y: smoothY,
       angle: smoothAngle,
       d: medianD,
       segments: cluster,
-      confidence: Math.min(score / 500, 1),
+      confidence,
       segmentCount,
       totalLength
     };
@@ -810,7 +818,7 @@ class CVProcessor {
     ctx.fillStyle = config.colors.horizon;
     ctx.font = '12px monospace';
     const angleStr = Math.abs(angle) > 0.5 ? ` ∠${angle.toFixed(1)}°` : '';
-    ctx.fillText(`HORIZON ${Math.round(confidence * 100)}% (${segmentCount} seg)${angleStr}`, 10, yScaled - 5);
+    ctx.fillText(`Горизонт ${Math.round(confidence * 100)}% (${segmentCount} сегментов)${angleStr}`, 10, yScaled - 5);
   }
   
   /** Отрисовка перспективной сетки */
