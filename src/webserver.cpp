@@ -397,14 +397,16 @@ void webserverStartMain() {
     // Статика
     httpd_uri_t uriIndex   = {"/",            HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriConfigJs = {"/config.js",  HTTP_GET, staticHandler, NULL};  // Config
-    httpd_uri_t uriCtrlJs  = {"/control.js",  HTTP_GET, staticHandler, NULL};  // ControlService
-    httpd_uri_t uriJs      = {"/script.js",   HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCtrlJs  = {"/control.js",      HTTP_GET, staticHandler, NULL};  // ControlService
+    httpd_uri_t uriCvJs   = {"/cv-processor.js", HTTP_GET, staticHandler, NULL};  // CV Processor
+    httpd_uri_t uriJs     = {"/script.js",       HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriCss     = {"/style.css",   HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriLogo    = {"/logo.svg",    HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriFavicon = {"/favicon.ico", HTTP_GET, staticHandler, NULL};
     httpd_register_uri_handler(mainHttpd, &uriIndex);
     httpd_register_uri_handler(mainHttpd, &uriConfigJs);
     httpd_register_uri_handler(mainHttpd, &uriCtrlJs);
+    httpd_register_uri_handler(mainHttpd, &uriCvJs);
     httpd_register_uri_handler(mainHttpd, &uriJs);
     httpd_register_uri_handler(mainHttpd, &uriCss);
     httpd_register_uri_handler(mainHttpd, &uriLogo);

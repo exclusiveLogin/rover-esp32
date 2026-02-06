@@ -237,8 +237,9 @@
   <script src="/cv-processor.js"></script>
   <script src="/script.js"></script>
   
-  <!-- OpenCV.js (локальная копия, ~10MB) -->
-  <script async src="/opencv.js" 
+  <!-- OpenCV.js (CDN) -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" 
+          crossorigin="anonymous"
           onload="window.dispatchEvent(new Event('opencv-ready'))"></script>
 </body>
 </html>
