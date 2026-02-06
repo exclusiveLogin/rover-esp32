@@ -51,6 +51,9 @@ window.AppConfig = {
   PHOTO_API: '/photo',
   LED_API: '/led',
   
+  // API телеметрии (для OSD)
+  STATUS_API: '/api/status',
+  
   // === Управление ===
   
   // ControlService настройки
@@ -139,6 +142,13 @@ window.AppConfig = {
       grid: 'rgba(0, 255, 255, 0.4)',  // Cyan полупрозрачный
       walls: '#FF6600'        // Оранжевый
     }
+  },
+  
+  // === OSD (On-Screen Display) ===
+  
+  OSD: {
+    enabled: true,            // OSD включён по умолчанию
+    pollIntervalSec: 5,       // Интервал опроса (секунды, 1-10)
   },
   
   // === Утилиты ===

@@ -1,3 +1,26 @@
+/**
+ * ============================================================
+ * 🚀 main.cpp — Точка входа ESP32-CAM Rover
+ * ============================================================
+ *
+ * Порядок инициализации (setup):
+ *   1. Serial (115200 baud)
+ *   2. IR LED пин (GPIO 4)
+ *   3. PWM моторы (driveInit)
+ *   4. Модуль управления с watchdog (controlInit)
+ *   5. SPIFFS файловая система (для веб-интерфейса)
+ *   6. Камера OV2640 (cameraInit)
+ *   7. WiFi (STA-режим, ожидание подключения)
+ *   8. HTTP-сервер на порту 80 (webserverStartMain, Core 1)
+ *   9. MJPEG стрим-сервер на порту 81 (streamServerTask, Core 0)
+ *
+ * Основной цикл (loop, ~50 Гц):
+ *   - controlUpdate() — watchdog-проверка таймаута команд
+ *   - WiFi reconnect — раз в 10 сек проверка связи
+ *
+ * ============================================================
+ */
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <SPIFFS.h>
@@ -5,12 +28,8 @@
 #include "config.h"
 #include "camera.h"
 #include "drive.h"
-#include "control.h"   // Модуль управления с watchdog таймаутом
+#include "control.h"
 #include "webserver.h"
-
-// ============================================================
-// 🚀 ESP32-CAM Rover — Main
-// ============================================================
 
 void setup() {
     Serial.begin(115200);
@@ -72,6 +91,7 @@ void setup() {
     Serial.printf("💡 LED:       http://%s/led\n", WiFi.localIP().toString().c_str());
     Serial.printf("🔧 Drive API:   http://%s/api/drive   (отладка)\n", WiFi.localIP().toString().c_str());
     Serial.printf("🎮 Control API: http://%s/api/control (с watchdog)\n", WiFi.localIP().toString().c_str());
+    Serial.printf("📊 Status API:  http://%s/api/status  (телеметрия)\n", WiFi.localIP().toString().c_str());
     Serial.println("========================================\n");
 }
 

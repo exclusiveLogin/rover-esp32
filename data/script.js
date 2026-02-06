@@ -1109,6 +1109,197 @@
     console.log(`👁️ CV ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
   }
 
+  // ============================================================
+  // 📊 OSD — On-Screen Display (телеметрия поверх видео)
+  // ============================================================
+  //
+  // Виджеты отображаются в 4-х углах видео (DJI FPV-style).
+  // Данные запрашиваются polling'ом из /api/status.
+  // Тогглер и интервал настраиваются в панели настроек.
+  //
+  // ============================================================
+
+  let osdEnabled = true;
+  let osdPollTimer = null;
+  let osdIntervalMs = 5000;
+
+  /**
+   * Инициализация OSD: тогглер, слайдер интервала, старт polling'а
+   */
+  function initOSD() {
+    const toggle = document.getElementById('osd-toggle');
+    const slider = document.getElementById('osd-interval-slider');
+    const valueEl = document.getElementById('osd-interval-value');
+    const overlay = document.getElementById('osd-overlay');
+
+    // Читаем конфиг
+    osdEnabled = window.AppConfig.OSD ? window.AppConfig.OSD.enabled : true;
+    osdIntervalMs = window.AppConfig.OSD ? window.AppConfig.OSD.pollIntervalSec * 1000 : 5000;
+
+    // Тогглер ON/OFF
+    if (toggle) {
+      toggle.textContent = osdEnabled ? 'ON' : 'OFF';
+      toggle.classList.toggle('active', osdEnabled);
+
+      toggle.addEventListener('click', () => {
+        osdEnabled = !osdEnabled;
+        toggle.textContent = osdEnabled ? 'ON' : 'OFF';
+        toggle.classList.toggle('active', osdEnabled);
+
+        if (overlay) overlay.classList.toggle('hidden', !osdEnabled);
+
+        if (osdEnabled) {
+          osdStartPolling();
+          osdFetchStatus(); // немедленный запрос при включении
+        } else {
+          osdStopPolling();
+        }
+
+        console.log(`📊 OSD: ${osdEnabled ? 'ON' : 'OFF'}`);
+      });
+    }
+
+    // Ползунок интервала (1-10 сек)
+    if (slider) {
+      slider.value = osdIntervalMs / 1000;
+      if (valueEl) valueEl.textContent = (osdIntervalMs / 1000) + ' сек';
+
+      slider.addEventListener('input', () => {
+        const sec = parseInt(slider.value);
+        osdIntervalMs = sec * 1000;
+        if (valueEl) valueEl.textContent = sec + ' сек';
+
+        // Перезапуск polling'а с новым интервалом
+        if (osdEnabled) {
+          osdStopPolling();
+          osdStartPolling();
+        }
+      });
+    }
+
+    // Начальное состояние overlay
+    if (overlay && !osdEnabled) overlay.classList.add('hidden');
+
+    // Запуск polling'а если включён
+    if (osdEnabled) {
+      osdStartPolling();
+      osdFetchStatus();
+    }
+
+    console.log('📊 OSD initialized (interval: ' + (osdIntervalMs / 1000) + 's)');
+  }
+
+  /**
+   * Запуск periodic polling
+   */
+  function osdStartPolling() {
+    osdStopPolling();
+    osdPollTimer = setInterval(osdFetchStatus, osdIntervalMs);
+  }
+
+  /**
+   * Остановка polling
+   */
+  function osdStopPolling() {
+    if (osdPollTimer) {
+      clearInterval(osdPollTimer);
+      osdPollTimer = null;
+    }
+  }
+
+  /**
+   * Запрос /api/status и обновление OSD-виджетов
+   */
+  function osdFetchStatus() {
+    if (!osdEnabled) return;
+
+    const url = window.AppConfig.getApiUrl(
+      window.AppConfig.STATUS_API || '/api/status'
+    );
+
+    fetch(url)
+      .then(r => r.json())
+      .then(data => updateOSD(data))
+      .catch(err => {
+        console.warn('📊 OSD fetch error:', err.message);
+      });
+  }
+
+  /**
+   * Обновление DOM-элементов OSD из JSON-данных
+   * @param {object} data - Ответ от /api/status
+   */
+  function updateOSD(data) {
+    // --- Верхний левый: WiFi / RSSI ---
+    const rssiEl = document.getElementById('osd-rssi');
+    const ipEl = document.getElementById('osd-ip');
+
+    if (rssiEl && data.rssi !== undefined) {
+      rssiEl.textContent = data.rssi;
+      // Цветовая индикация
+      rssiEl.className = '';
+      if (data.rssi > -60) rssiEl.className = 'osd-rssi-good';
+      else if (data.rssi > -75) rssiEl.className = 'osd-rssi-mid';
+      else rssiEl.className = 'osd-rssi-bad';
+    }
+    if (ipEl) ipEl.textContent = data.ip || '—';
+
+    // --- Верхний правый: Uptime + память ---
+    const uptimeEl = document.getElementById('osd-uptime');
+    const heapEl = document.getElementById('osd-heap');
+    const psramEl = document.getElementById('osd-psram');
+
+    if (uptimeEl && data.uptime !== undefined) {
+      uptimeEl.textContent = formatUptime(data.uptime);
+    }
+    if (heapEl && data.heap !== undefined) {
+      const heapKB = (data.heap / 1024).toFixed(1);
+      heapEl.textContent = heapKB + ' KB';
+      heapEl.className = data.heap < 20480 ? 'osd-heap-low' : '';
+    }
+    if (psramEl && data.psram !== undefined) {
+      const psramMB = (data.psram / (1024 * 1024)).toFixed(1);
+      psramEl.textContent = psramMB + ' MB';
+    }
+
+    // --- Нижний левый: Моторы ---
+    const flEl = document.getElementById('osd-fl');
+    const frEl = document.getElementById('osd-fr');
+    const rlEl = document.getElementById('osd-rl');
+    const rrEl = document.getElementById('osd-rr');
+
+    if (data.motors) {
+      if (flEl) flEl.textContent = data.motors.fl;
+      if (frEl) frEl.textContent = data.motors.fr;
+      if (rlEl) rlEl.textContent = data.motors.rl;
+      if (rrEl) rrEl.textContent = data.motors.rr;
+    }
+
+    // --- Нижний правый: Clients + LED + CPU ---
+    const clientsEl = document.getElementById('osd-clients');
+    const ledEl = document.getElementById('osd-led');
+    const cpuEl = document.getElementById('osd-cpu');
+
+    if (clientsEl) clientsEl.textContent = data.stream_clients !== undefined ? data.stream_clients : '—';
+    if (ledEl) ledEl.textContent = data.led ? 'ON' : 'OFF';
+    if (cpuEl) cpuEl.textContent = data.cpu_mhz || '—';
+  }
+
+  /**
+   * Форматирование uptime (мс → ЧЧ:ММ:СС)
+   * @param {number} ms - Миллисекунды
+   * @returns {string} Форматированное время
+   */
+  function formatUptime(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    return String(h).padStart(2, '0') + ':' +
+           String(m).padStart(2, '0') + ':' +
+           String(s).padStart(2, '0');
+  }
+
   // === Запуск ===
   document.addEventListener('DOMContentLoaded', () => {
     init();
@@ -1116,5 +1307,6 @@
     initJoysticks();
     initSettings();
     initCV();
+    initOSD();
   });
 })();

@@ -35,6 +35,49 @@
         <!-- 👁️ CV Overlay (OpenCV.js) -->
         <canvas id="cv-overlay" class="cv-overlay"></canvas>
         
+        <!-- 📊 OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
+        <div class="osd-overlay" id="osd-overlay">
+          <!-- WiFi / RSSI -->
+          <div class="osd-widget">
+            <span class="osd-icon">📶</span><span id="osd-rssi" class="osd-val">—</span><span class="osd-unit">dBm</span>
+          </div>
+          <!-- IP -->
+          <div class="osd-widget">
+            <span class="osd-icon">📡</span><span id="osd-ip" class="osd-val">—</span>
+          </div>
+          <!-- Uptime -->
+          <div class="osd-widget">
+            <span class="osd-icon">⏱</span><span id="osd-uptime" class="osd-val">—</span>
+          </div>
+          <!-- Heap -->
+          <div class="osd-widget">
+            <span class="osd-icon">🧠</span><span id="osd-heap" class="osd-val">—</span>
+          </div>
+          <!-- PSRAM -->
+          <div class="osd-widget">
+            <span class="osd-icon">💾</span><span id="osd-psram" class="osd-val">—</span>
+          </div>
+          <!-- CPU -->
+          <div class="osd-widget">
+            <span class="osd-icon">⚡</span><span id="osd-cpu" class="osd-val">—</span><span class="osd-unit">MHz</span>
+          </div>
+          <!-- Stream clients -->
+          <div class="osd-widget">
+            <span class="osd-icon">👥</span><span id="osd-clients" class="osd-val">—</span>
+          </div>
+          <!-- LED -->
+          <div class="osd-widget">
+            <span class="osd-icon">💡</span><span id="osd-led" class="osd-val">—</span>
+          </div>
+          <!-- Motors (компактно) -->
+          <div class="osd-widget osd-motors">
+            <span class="osd-motor">FL:<span id="osd-fl">0</span></span>
+            <span class="osd-motor">FR:<span id="osd-fr">0</span></span>
+            <span class="osd-motor">RL:<span id="osd-rl">0</span></span>
+            <span class="osd-motor">RR:<span id="osd-rr">0</span></span>
+          </div>
+        </div>
+        
         <!-- 🎮 Джойстики поверх видео (DJI-style) -->
         <div class="joysticks-overlay" id="joysticks-overlay">
           <!-- Левый джойстик — ГАЗ (только Y) -->
@@ -146,6 +189,22 @@
           <input type="range" id="expo-slider-x" class="expo-vslider expo-x"
                  min="-100" max="100" value="0" step="5">
           <span class="expo-axis-value" id="expo-value-x">0</span>
+        </div>
+      </div>
+
+      <!-- 📊 OSD настройки -->
+      <div class="setting-row">
+        <span class="setting-label">📊 OSD</span>
+        <div class="toggle-switch">
+          <button class="toggle-btn active" id="osd-toggle">ON</button>
+        </div>
+      </div>
+      <div class="setting-row" id="osd-interval-row">
+        <span class="setting-label">Интервал OSD</span>
+        <div class="osd-interval-ctrl">
+          <input type="range" id="osd-interval-slider" class="osd-slider"
+                 min="1" max="10" value="5" step="1">
+          <span class="osd-interval-value" id="osd-interval-value">5 сек</span>
         </div>
       </div>
 
