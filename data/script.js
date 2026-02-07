@@ -735,14 +735,17 @@
    * Инициализация настроек
    */
   function initSettings() {
-    // === Переключатель режимов ===
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
+    // === Переключатель режимов джойстиков ===
+    // ВАЖНО: выбираем только кнопки с data-mode (dual/single),
+    // а не все .toggle-btn на странице, иначе при клике
+    // снимется active со ВСЕХ тогглов (motion, OSD, CV debug).
+    document.querySelectorAll('.toggle-btn[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.mode;
         setJoystickMode(mode);
         
-        // UI
-        document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+        // UI: снимаем active только с соседних кнопок режима джойстиков
+        document.querySelectorAll('.toggle-btn[data-mode]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
     });
@@ -963,6 +966,64 @@
   let cvReady = false;
 
   /**
+   * Проверка и установка cvReady
+   * Вызывается при DOMContentLoaded (если cv уже в кэше)
+   * и по событию opencv-ready (если загрузился позже).
+   * Безопасно вызывать многократно — сработает один раз.
+   */
+  async function checkAndSetCVReady() {
+    if (cvReady) return;  // уже готов
+
+    try {
+      if (typeof cv === 'undefined') return;
+
+      // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
+      if (cv instanceof Promise || typeof cv === 'function') {
+        cv = await cv;
+      }
+
+      if (!cv.Mat) {
+        // WASM ещё инициализируется — ждём через polling
+        const checkInterval = setInterval(() => {
+          if (typeof cv !== 'undefined' && cv.Mat) {
+            clearInterval(checkInterval);
+            setCVReady();
+          }
+        }, 1000);
+        return;
+      }
+
+      setCVReady();
+    } catch (e) {
+      console.warn('⏳ OpenCV.js not ready yet:', e.message);
+    }
+  }
+
+  /**
+   * Финальная установка cvReady = true + обновление UI
+   */
+  function setCVReady() {
+    if (cvReady) return;
+    cvReady = true;
+
+    const cvBtn = document.getElementById('cv-btn');
+    const motionBtn = document.getElementById('motion-btn');
+    const debugSection = document.getElementById('cv-debug-section');
+
+    if (cvBtn) {
+      cvBtn.classList.remove('loading');
+    }
+    if (motionBtn) {
+      motionBtn.classList.remove('loading');
+    }
+    if (debugSection) {
+      debugSection.style.display = 'block';
+    }
+
+    console.log('✅ OpenCV.js loaded');
+  }
+
+  /**
    * Инициализация CV
    */
   function initCV() {
@@ -974,44 +1035,19 @@
       return;
     }
 
-    // Слушаем загрузку OpenCV.js
-    window.addEventListener('opencv-ready', async () => {
-      try {
-        // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
-        if (typeof cv !== 'undefined') {
-          if (cv instanceof Promise || typeof cv === 'function') {
-            cv = await cv;
-          }
-        }
-
-        // Ждём пока cv.Mat будет доступен
-        const checkReady = setInterval(() => {
-          if (typeof cv !== 'undefined' && cv.Mat) {
-            clearInterval(checkReady);
-            cvReady = true;
-            cvBtn.classList.remove('loading');
-            console.log('✅ OpenCV.js loaded');
-            
-            // Показываем секцию CV Debug когда OpenCV готов
-            const debugSection = document.getElementById('cv-debug-section');
-            if (debugSection) {
-              debugSection.style.display = 'block';
-            }
-          }
-        }, 100);
-      } catch (e) {
-        console.error('❌ OpenCV.js init error:', e);
-        cvBtn.classList.remove('loading');
-        cvBtn.title = 'OpenCV.js ошибка загрузки';
-      }
-    });
-
     // Кнопка CV
     cvBtn.addEventListener('click', toggleCV);
     
     // Пометим кнопку как "загружается"
     cvBtn.classList.add('loading');
     cvBtn.title = 'OpenCV.js загружается...';
+
+    // Проверяем OpenCV: может быть уже загружен из кэша
+    // (onload события могло прийти ДО DOMContentLoaded)
+    checkAndSetCVReady();
+
+    // Слушаем событие на случай если ещё не загружен
+    window.addEventListener('opencv-ready', () => checkAndSetCVReady());
     
     // Инициализация CV Debug panel
     initCVDebug();
@@ -1107,6 +1143,205 @@
     cvBtn.title = isRunning ? 'CV включён' : 'CV выключён';
     
     console.log(`👁️ CV ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
+  }
+
+  // ============================================================
+  // 🔴 MOTION DETECTION (OpenCV.js)
+  // ============================================================
+
+  let motionDetector = null;
+  let motionOsdEnabled = true;
+  let motionDesaturateEnabled = false;
+
+  /**
+   * Инициализация Motion Detection
+   */
+  function initMotion() {
+    const motionBtn = document.getElementById('motion-btn');
+    if (!motionBtn) return;
+
+    // Кнопка Motion
+    motionBtn.addEventListener('click', toggleMotion);
+
+    // Пометим кнопку как "загружается" (ждёт OpenCV)
+    // setCVReady() снимет loading когда OpenCV будет готов
+    if (!cvReady) {
+      motionBtn.classList.add('loading');
+      motionBtn.title = 'OpenCV.js загружается...';
+    }
+
+    // Настройки Motion Detection
+    initMotionSettings();
+
+    console.log('🔴 Motion module initialized');
+  }
+
+  /**
+   * Инициализация настроек Motion Detection
+   */
+  function initMotionSettings() {
+    // Тоггл: Пиксели
+    const pixelsToggle = document.getElementById('motion-pixels-toggle');
+    if (pixelsToggle) {
+      pixelsToggle.addEventListener('click', () => {
+        const isActive = pixelsToggle.classList.contains('active');
+        pixelsToggle.classList.toggle('active', !isActive);
+        pixelsToggle.textContent = isActive ? 'OFF' : 'ON';
+        if (motionDetector) motionDetector.setLayer('pixels', !isActive);
+      });
+    }
+
+    // Тоггл: BB рамки
+    const boxesToggle = document.getElementById('motion-boxes-toggle');
+    if (boxesToggle) {
+      boxesToggle.addEventListener('click', () => {
+        const isActive = boxesToggle.classList.contains('active');
+        boxesToggle.classList.toggle('active', !isActive);
+        boxesToggle.textContent = isActive ? 'OFF' : 'ON';
+        if (motionDetector) motionDetector.setLayer('boxes', !isActive);
+      });
+    }
+
+    // Тоггл: Контуры (силуэты)
+    const contoursToggle = document.getElementById('motion-contours-toggle');
+    if (contoursToggle) {
+      contoursToggle.addEventListener('click', () => {
+        const isActive = contoursToggle.classList.contains('active');
+        contoursToggle.classList.toggle('active', !isActive);
+        contoursToggle.textContent = isActive ? 'OFF' : 'ON';
+        if (motionDetector) motionDetector.setLayer('contours', !isActive);
+      });
+    }
+
+    // Тоггл: Десатурация (CSS filter на видео)
+    const desatToggle = document.getElementById('motion-desaturate-toggle');
+    if (desatToggle) {
+      desatToggle.addEventListener('click', () => {
+        motionDesaturateEnabled = !motionDesaturateEnabled;
+        desatToggle.classList.toggle('active', motionDesaturateEnabled);
+        desatToggle.textContent = motionDesaturateEnabled ? 'ON' : 'OFF';
+        applyDesaturation(motionDesaturateEnabled);
+      });
+    }
+
+    // Тоггл: OSD Motion виджет
+    const osdToggle = document.getElementById('motion-osd-toggle');
+    if (osdToggle) {
+      osdToggle.addEventListener('click', () => {
+        motionOsdEnabled = !motionOsdEnabled;
+        osdToggle.classList.toggle('active', motionOsdEnabled);
+        osdToggle.textContent = motionOsdEnabled ? 'ON' : 'OFF';
+        const widget = document.getElementById('osd-motion-widget');
+        if (widget) widget.style.display = motionOsdEnabled && motionDetector?.isRunning() ? '' : 'none';
+      });
+    }
+
+    // Слайдер: Порог
+    const threshSlider = document.getElementById('motion-threshold-slider');
+    const threshValue = document.getElementById('motion-threshold-value');
+    if (threshSlider) {
+      threshSlider.addEventListener('input', () => {
+        const val = parseInt(threshSlider.value);
+        if (threshValue) threshValue.textContent = val;
+        if (motionDetector) motionDetector.setThreshold(val);
+      });
+    }
+
+    // Слайдер: Мин. область
+    const areaSlider = document.getElementById('motion-minarea-slider');
+    const areaValue = document.getElementById('motion-minarea-value');
+    if (areaSlider) {
+      areaSlider.addEventListener('input', () => {
+        const val = parseInt(areaSlider.value);
+        if (areaValue) areaValue.textContent = val;
+        if (motionDetector) motionDetector.setMinArea(val);
+      });
+    }
+  }
+
+  /**
+   * Включение/выключение Motion Detection
+   */
+  function toggleMotion() {
+    const motionBtn = document.getElementById('motion-btn');
+    const motionOverlay = document.getElementById('motion-overlay');
+    const settingsSection = document.getElementById('motion-settings-section');
+
+    if (!cvReady) {
+      console.warn('OpenCV.js not ready yet');
+      if (motionBtn) motionBtn.title = 'OpenCV.js ещё загружается...';
+      return;
+    }
+
+    // Получаем текущий активный видео-элемент
+    const activeVideo = getActiveVideoElement();
+
+    // Пересоздаём детектор если источник изменился
+    if (motionDetector && motionDetector.video !== activeVideo) {
+      motionDetector.stop();
+      motionDetector = null;
+    }
+
+    if (!motionDetector) {
+      motionDetector = new MotionDetector(activeVideo, motionOverlay, {
+        ...window.AppConfig.MOTION,
+        onMotion: (result) => {
+          updateMotionOSD(result);
+        },
+        onError: (err) => {
+          console.error('Motion error:', err);
+        }
+      });
+    }
+
+    // Toggle
+    const isRunning = motionDetector.toggle();
+    if (motionBtn) {
+      motionBtn.classList.toggle('active', isRunning);
+      motionBtn.title = isRunning ? 'Motion Detection включён' : 'Motion Detection выключён';
+    }
+
+    // Показ/скрытие настроек
+    if (settingsSection) {
+      settingsSection.style.display = isRunning ? 'block' : 'none';
+    }
+
+    // OSD виджет
+    const osdWidget = document.getElementById('osd-motion-widget');
+    if (osdWidget) {
+      osdWidget.style.display = (isRunning && motionOsdEnabled) ? '' : 'none';
+    }
+
+    // Десатурация: снимаем при выключении
+    if (!isRunning && motionDesaturateEnabled) {
+      applyDesaturation(false);
+    } else if (isRunning && motionDesaturateEnabled) {
+      applyDesaturation(true);
+    }
+
+    console.log(`🔴 Motion ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
+  }
+
+  /**
+   * Применить/убрать десатурацию на видео-элементе (CSS filter)
+   */
+  function applyDesaturation(enabled) {
+    const filter = enabled ? 'grayscale(0.8) brightness(1.2)' : '';
+    videoFeed.style.filter = filter;
+    videoLocal.style.filter = filter;
+  }
+
+  /**
+   * Обновление OSD виджета Motion
+   */
+  function updateMotionOSD(result) {
+    if (!motionOsdEnabled) return;
+
+    const percentEl = document.getElementById('osd-motion-percent');
+    const regionsEl = document.getElementById('osd-motion-regions');
+
+    if (percentEl) percentEl.textContent = result.motionPercent.toFixed(1) + '%';
+    if (regionsEl) regionsEl.textContent = result.regionCount;
   }
 
   // ============================================================
@@ -1307,6 +1542,7 @@
     initJoysticks();
     initSettings();
     initCV();
+    initMotion();
     initOSD();
   });
 })();

@@ -32,7 +32,10 @@
           <span>Загрузка стрима...</span>
         </div>
         
-        <!-- 👁️ CV Overlay (OpenCV.js) -->
+        <!-- 🔴 Motion Overlay (отдельный canvas, z-index: 3) -->
+        <canvas id="motion-overlay" class="motion-overlay"></canvas>
+        
+        <!-- 👁️ CV Overlay (OpenCV.js, z-index: 5) -->
         <canvas id="cv-overlay" class="cv-overlay"></canvas>
         
         <!-- 📊 OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
@@ -68,6 +71,11 @@
           <!-- LED -->
           <div class="osd-widget">
             <span class="osd-icon">💡</span><span id="osd-led" class="osd-val">—</span>
+          </div>
+          <!-- Motion (скрыт по умолчанию) -->
+          <div class="osd-widget osd-motion" id="osd-motion-widget" style="display: none;">
+            <span class="osd-icon">🔴</span><span id="osd-motion-percent" class="osd-val">0%</span>
+            <span class="osd-unit">|</span><span id="osd-motion-regions" class="osd-val">0</span><span class="osd-unit">reg</span>
           </div>
           <!-- Motors (компактно) -->
           <div class="osd-widget osd-motors">
@@ -135,6 +143,9 @@
         </button>
         <button id="cv-btn" class="btn cv" title="Computer Vision (OpenCV.js)">
           <span class="icon">👁️</span> CV
+        </button>
+        <button id="motion-btn" class="btn motion" title="Motion Detection">
+          <span class="icon">🔴</span> Motion
         </button>
       </div>
     </div>
@@ -232,6 +243,56 @@
           </div>
         </div>
       </div>
+
+      <!-- 🔴 Motion Detection настройки -->
+      <div class="motion-settings-section" id="motion-settings-section" style="display: none;">
+        <div class="setting-row">
+          <span class="setting-label">🔴 Пиксели</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn active" id="motion-pixels-toggle">ON</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">📦 BB рамки</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn active" id="motion-boxes-toggle">ON</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">✏️ Контуры</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn" id="motion-contours-toggle">OFF</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">🌫️ Десатурация</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn" id="motion-desaturate-toggle">OFF</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">📊 OSD Motion</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn active" id="motion-osd-toggle">ON</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Порог</span>
+          <div class="motion-slider-ctrl">
+            <input type="range" id="motion-threshold-slider" class="motion-slider"
+                   min="5" max="100" value="25" step="1">
+            <span class="motion-slider-value" id="motion-threshold-value">25</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">Мин. область</span>
+          <div class="motion-slider-ctrl">
+            <input type="range" id="motion-minarea-slider" class="motion-slider"
+                   min="50" max="5000" value="500" step="50">
+            <span class="motion-slider-value" id="motion-minarea-value">500</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Управление моторами -->
@@ -304,6 +365,7 @@
   <script src="/config.js"></script>
   <script src="/control.js"></script>
   <script src="/cv-processor.js"></script>
+  <script src="/motion-detector.js"></script>
   <script src="/script.js"></script>
   
   <!-- OpenCV.js (GitHub CDN via jsDelivr) -->

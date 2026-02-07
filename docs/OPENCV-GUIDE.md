@@ -2,6 +2,8 @@
 
 Модуль обработки видеопотока с помощью OpenCV.js для детекции горизонта, сетки пола и стен.
 
+> **См. также:** [Motion Detector Guide](MOTION-DETECTOR-GUIDE.md) — детекция движения (absdiff, bounding boxes)
+
 ---
 
 ## 📚 Содержание
@@ -106,6 +108,18 @@ const { horizon, walls } = processor.lastResult;
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Canvas слои
+
+CV Processor и Motion Detector работают на **независимых canvas-элементах** и могут быть включены одновременно:
+
+```
+#video-feed / #video-local    z-index: 1   (видео)
+#motion-overlay               z-index: 3   (Motion Detector — красные пиксели, BB)
+#cv-overlay                   z-index: 5   (CV Processor — горизонт, сетка, стены)
+.osd-overlay                  z-index: 8   (OSD телеметрия)
+.joysticks-overlay            z-index: 10  (джойстики)
+```
+
 ### Поток данных
 
 | Шаг | Описание |
@@ -114,7 +128,7 @@ const { horizon, walls } = processor.lastResult;
 | 2 | Масштабирование до `processWidth × processHeight` |
 | 3 | Конвертация в `cv.Mat` (OpenCV) |
 | 4 | Обработка: edges → lines → clusters |
-| 5 | Отрисовка результата на overlay canvas |
+| 5 | Отрисовка результата на `#cv-overlay` canvas |
 | 6 | Очистка памяти OpenCV (`.delete()`) |
 
 ---
@@ -536,3 +550,4 @@ console.log(window.cvProcessor?.config);
 - [Hough Line Transform](https://docs.opencv.org/4.x/d9/db0/tutorial_hough_lines.html)
 - [Canny Edge Detection](https://docs.opencv.org/4.x/da/d22/tutorial_py_canny.html)
 - [Hesse Normal Form](https://en.wikipedia.org/wiki/Hesse_normal_form)
+- [Motion Detector Guide](MOTION-DETECTOR-GUIDE.md) — детекция движения в этом проекте
