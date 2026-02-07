@@ -1257,6 +1257,28 @@
         if (motionDetector) motionDetector.setMinArea(val);
       });
     }
+
+    // Слайдер: Сглаживание (blurSize)
+    const blurSlider = document.getElementById('motion-blur-slider');
+    const blurValue = document.getElementById('motion-blur-value');
+    if (blurSlider) {
+      blurSlider.addEventListener('input', () => {
+        const val = parseInt(blurSlider.value);
+        if (blurValue) blurValue.textContent = val;
+        if (motionDetector) motionDetector.setBlurSize(val);
+      });
+    }
+
+    // Слайдер: Расширение (dilateIterations)
+    const dilateSlider = document.getElementById('motion-dilate-slider');
+    const dilateValue = document.getElementById('motion-dilate-value');
+    if (dilateSlider) {
+      dilateSlider.addEventListener('input', () => {
+        const val = parseInt(dilateSlider.value);
+        if (dilateValue) dilateValue.textContent = val;
+        if (motionDetector) motionDetector.setDilateIterations(val);
+      });
+    }
   }
 
   /**

@@ -258,6 +258,24 @@ class MotionDetector {
   }
 
   /**
+   * Установить размер GaussianBlur ядра
+   * @param {number} value - нечётное число 3-15
+   */
+  setBlurSize(value) {
+    // GaussianBlur требует нечётный размер ядра
+    const v = Math.max(3, Math.min(15, value));
+    this.config.blurSize = v % 2 === 0 ? v + 1 : v;
+  }
+
+  /**
+   * Установить количество итераций dilate
+   * @param {number} value - 0-5
+   */
+  setDilateIterations(value) {
+    this.config.dilateIterations = Math.max(0, Math.min(5, value));
+  }
+
+  /**
    * Обновление конфигурации
    * @param {Object} options
    */
