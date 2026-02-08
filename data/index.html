@@ -175,6 +175,16 @@
         </div>
       </div>
 
+      <!-- Размер стиков (±75%) -->
+      <div class="setting-row">
+        <span class="setting-label">Размер стиков</span>
+        <div class="param-slider-ctrl">
+          <input type="range" id="joystick-scale-slider" class="param-slider"
+                 min="25" max="175" value="100" step="5">
+          <span class="param-slider-value" id="joystick-scale-value">100%</span>
+        </div>
+      </div>
+
       <!-- Expo панель: слайдер Y | график | слайдер X -->
       <div class="expo-panel">
         <!-- Левый: Y (газ) -->
@@ -201,6 +211,51 @@
                  min="-100" max="100" value="0" step="5">
           <span class="expo-axis-value" id="expo-value-x">0</span>
         </div>
+      </div>
+
+      <!-- 🔧 Диапазон PWM: ГАЗ слева | подпись | РУЛЬ справа -->
+      <div class="output-range-panel">
+        <div class="output-axis output-axis-y">
+          <span class="output-axis-title">ГАЗ (Y)</span>
+          <div class="output-slider-row">
+            <span class="output-slider-label">мин</span>
+            <input type="range" id="output-min-y-slider" class="param-slider"
+                   min="0" max="150" value="0" step="5">
+            <span class="param-slider-value" id="output-min-y-value">0</span>
+          </div>
+          <div class="output-slider-row">
+            <span class="output-slider-label">макс</span>
+            <input type="range" id="output-max-y-slider" class="param-slider"
+                   min="100" max="255" value="255" step="5">
+            <span class="param-slider-value" id="output-max-y-value">255</span>
+          </div>
+        </div>
+        <div class="output-range-center">
+          <span class="output-range-title">PWM</span>
+          <span class="output-range-hint">мин ↔ макс</span>
+        </div>
+        <div class="output-axis output-axis-x">
+          <span class="output-axis-title">РУЛЬ (X)</span>
+          <div class="output-slider-row">
+            <span class="output-slider-label">мин</span>
+            <input type="range" id="output-min-x-slider" class="param-slider"
+                   min="0" max="150" value="0" step="5">
+            <span class="param-slider-value" id="output-min-x-value">0</span>
+          </div>
+          <div class="output-slider-row">
+            <span class="output-slider-label">макс</span>
+            <input type="range" id="output-max-x-slider" class="param-slider"
+                   min="100" max="255" value="255" step="5">
+            <span class="param-slider-value" id="output-max-x-value">255</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Сохранить настройки -->
+      <div class="setting-row setting-save-row">
+        <button type="button" id="settings-save-btn" class="btn btn-save-settings">
+          💾 Сохранить настройки
+        </button>
       </div>
 
       <!-- 📊 OSD настройки -->

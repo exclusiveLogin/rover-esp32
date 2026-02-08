@@ -30,6 +30,10 @@ class ControlService {
     maxValue: 255,            // Максимальное значение X/Y
     expoX: 0,                 // Expo кривая руля (X): -1..+1 (0 = линейная)
     expoY: 0,                 // Expo кривая газа (Y): -1..+1 (0 = линейная)
+    outputMinX: 0,            // Руль: мин. PWM выхода. 0 = без ремапа
+    outputMaxX: 255,          // Руль: макс. PWM выхода
+    outputMinY: 0,            // Газ: мин. PWM выхода
+    outputMaxY: 255,          // Газ: макс. PWM выхода
   };
 
   constructor(apiUrl = ControlService.DEFAULTS.apiUrl, options = {}) {
@@ -180,7 +184,7 @@ class ControlService {
    * Автоматически отправляет stop
    */
   deactivate() {
-    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, active: false });
+    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, outX: 0, outY: 0, active: false });
     this._sendImmediate(0, 0);
   }
 
@@ -189,7 +193,7 @@ class ControlService {
    */
   emergencyStop() {
     this._abort();
-    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, active: false, lastSentX: 0, lastSentY: 0 });
+    this._updateState({ x: 0, y: 0, expoX: 0, expoY: 0, outX: 0, outY: 0, active: false, lastSentX: 0, lastSentY: 0 });
     this._sendImmediate(0, 0);
   }
 
@@ -256,10 +260,16 @@ class ControlService {
     const expoX = this._applyExpo(x, this.config.expoX);
     const expoY = this._applyExpo(y, this.config.expoY);
     
+    // Ремап в рабочий диапазон мотора (по осям)
+    const outX = this._remapOutput(expoX, this.config.outputMinX, this.config.outputMaxX);
+    const outY = this._remapOutput(expoY, this.config.outputMinY, this.config.outputMaxY);
+    
     // Обновляем state (сырые + expo значения)
     this._updateState({
       expoX: expoX,
       expoY: expoY,
+      outX: outX,
+      outY: outY,
       lastSentX: x,
       lastSentY: y,
       lastSentTime: Date.now(),
@@ -270,7 +280,7 @@ class ControlService {
     fetch(this.config.apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'xy', x: expoX, y: expoY }),
+      body: JSON.stringify({ type: 'xy', x: outX, y: outY }),
       signal: this._abortController.signal,
     })
       .then(r => r.json())
@@ -325,6 +335,29 @@ class ControlService {
    */
   _map(value, inMin, inMax, outMin, outMax) {
     return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
+  }
+
+  /**
+   * Ремап значения в рабочий диапазон мотора.
+   *   0 → 0 (стоп)
+   *   1..255 → outMin..outMax
+   *
+   * @param {number} value - Входное значение (-255..+255)
+   * @param {number} outMin - Мин. PWM для этой оси
+   * @param {number} outMax - Макс. PWM для этой оси
+   * @returns {number} - Ремапленное значение
+   */
+  _remapOutput(value, outMin, outMax) {
+    if (value === 0) return 0;
+
+    const maxValue = this.config.maxValue;
+    if (outMin === 0 && outMax === maxValue) return value;
+
+    const sign = value > 0 ? 1 : -1;
+    const abs = Math.abs(value);
+
+    const mapped = outMin + (abs / maxValue) * (outMax - outMin);
+    return sign * Math.round(mapped);
   }
 
   /**
@@ -399,6 +432,26 @@ class ControlService {
    */
   getExpo(axis = 'x') {
     return axis === 'y' ? this.config.expoY : this.config.expoX;
+  }
+
+  /**
+   * Установить диапазон выхода (мёртвая зона мотора) для оси
+   * @param {'x'|'y'} axis - Ось
+   * @param {number} min - Минимальный PWM (0-254)
+   * @param {number} max - Максимальный PWM (min+1..255)
+   */
+  setOutputRange(axis, min, max) {
+    min = this._clamp(Math.round(min), 0, 254);
+    max = this._clamp(Math.round(max), min + 1, 255);
+
+    if (axis === 'x') {
+      this.config.outputMinX = min;
+      this.config.outputMaxX = max;
+    } else {
+      this.config.outputMinY = min;
+      this.config.outputMaxY = max;
+    }
+    console.log(`🔧 Output ${axis.toUpperCase()}: ${min}..${max}`);
   }
 
   /**

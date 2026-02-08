@@ -735,6 +735,12 @@
    * Инициализация настроек
    */
   function initSettings() {
+    // === Размер стиков (25..175%) ===
+    setupJoystickScaleSlider();
+
+    // === Кнопка «Сохранить настройки» ===
+    setupSaveSettingsButton();
+
     // === Переключатель режимов джойстиков ===
     // ВАЖНО: выбираем только кнопки с data-mode (dual/single),
     // а не все .toggle-btn на странице, иначе при клике
@@ -753,6 +759,9 @@
     // === Expo sliders (раздельно X / Y) ===
     setupExpoSlider('x');
     setupExpoSlider('y');
+
+    // === Output range sliders (PWM мин./макс.) ===
+    setupOutputRangeSliders();
 
     // === Инициализация canvas для графика ===
     expoCanvas = document.getElementById('expo-graph');
@@ -800,6 +809,121 @@
 
       // Перерисовываем график
       redrawExpoGraph();
+    });
+  }
+
+  /**
+   * Настройка слайдеров диапазона выхода (PWM мин./макс.) — по осям
+   */
+  function setupOutputRangeSliders() {
+    setupOutputAxis('x');
+    setupOutputAxis('y');
+  }
+
+  function setupOutputAxis(axis) {
+    const minSlider = document.getElementById(`output-min-${axis}-slider`);
+    const minVal    = document.getElementById(`output-min-${axis}-value`);
+    const maxSlider = document.getElementById(`output-max-${axis}-slider`);
+    const maxVal    = document.getElementById(`output-max-${axis}-value`);
+
+    const cfgKey = axis === 'x' ? 'outputMinX' : 'outputMinY';
+    const cfgKeyMax = axis === 'x' ? 'outputMaxX' : 'outputMaxY';
+    const cfg = window.AppConfig.CONTROL;
+
+    if (minSlider && cfg[cfgKey] !== undefined) {
+      minSlider.value = cfg[cfgKey];
+      if (minVal) minVal.textContent = cfg[cfgKey];
+    }
+    if (maxSlider && cfg[cfgKeyMax] !== undefined) {
+      maxSlider.value = cfg[cfgKeyMax];
+      if (maxVal) maxVal.textContent = cfg[cfgKeyMax];
+    }
+
+    if (minSlider) {
+      minSlider.addEventListener('input', () => {
+        let min = parseInt(minSlider.value);
+        const max = maxSlider ? parseInt(maxSlider.value) : 255;
+        if (min >= max) { min = max - 5; minSlider.value = min; }
+        if (minVal) minVal.textContent = min;
+        if (controlService) controlService.setOutputRange(axis, min, max);
+      });
+    }
+
+    if (maxSlider) {
+      maxSlider.addEventListener('input', () => {
+        let max = parseInt(maxSlider.value);
+        const min = minSlider ? parseInt(minSlider.value) : 0;
+        if (max <= min) { max = min + 5; maxSlider.value = max; }
+        if (maxVal) maxVal.textContent = max;
+        if (controlService) controlService.setOutputRange(axis, min, max);
+      });
+    }
+  }
+
+  /**
+   * Слайдер размера стиков (25..175%)
+   */
+  function setupJoystickScaleSlider() {
+    const slider = document.getElementById('joystick-scale-slider');
+    const valueEl = document.getElementById('joystick-scale-value');
+    if (!slider) return;
+
+    const scale = Math.round(Number(window.AppConfig.JOYSTICK.scale) || 100);
+    slider.value = scale;
+    if (valueEl) valueEl.textContent = scale + '%';
+    applyJoystickScale();
+
+    slider.addEventListener('input', () => {
+      const v = parseInt(slider.value);
+      window.AppConfig.JOYSTICK.scale = v;
+      if (valueEl) valueEl.textContent = v + '%';
+      applyJoystickScale();
+    });
+  }
+
+  /**
+   * Применить масштаб стиков к DOM и пересчитать радиус
+   */
+  function applyJoystickScale() {
+    const scale = (Number(window.AppConfig.JOYSTICK.scale) || 100) / 100;
+    document.querySelectorAll('.joystick-area').forEach(el => {
+      el.style.transform = `scale(${scale})`;
+      el.style.transformOrigin = 'center center';
+    });
+    calcJoystickRadius('left');
+    calcJoystickRadius('right');
+  }
+
+  /**
+   * Кнопка «Сохранить настройки» — пишем UI в AppConfig и сохраняем в localStorage
+   */
+  function setupSaveSettingsButton() {
+    const btn = document.getElementById('settings-save-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+      // Синхронизируем CONTROL из controlService (expo + output range уже там)
+      if (controlService) {
+        const cfg = controlService.config;
+        Object.assign(window.AppConfig.CONTROL, {
+          deadzone: cfg.deadzone,
+          expoX: cfg.expoX,
+          expoY: cfg.expoY,
+          outputMinX: cfg.outputMinX,
+          outputMaxX: cfg.outputMaxX,
+          outputMinY: cfg.outputMinY,
+          outputMaxY: cfg.outputMaxY,
+        });
+      }
+      // JOYSTICK.scale уже обновляется слайдером
+      window.AppConfig.save();
+
+      btn.textContent = '✓ Сохранено';
+      btn.classList.add('saved');
+      setTimeout(() => {
+        btn.textContent = '💾 Сохранить настройки';
+        btn.classList.remove('saved');
+      }, 1500);
     });
   }
 

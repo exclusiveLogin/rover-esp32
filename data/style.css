@@ -512,6 +512,31 @@ main {
   flex-shrink: 0;
 }
 
+.setting-save-row {
+  justify-content: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn-save-settings {
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+}
+
+.btn-save-settings:hover {
+  background: var(--accent-hover);
+}
+
+.btn-save-settings.saved {
+  background: var(--success);
+  color: #fff;
+}
+
 /* Переключатель режимов */
 .toggle-switch {
   display: flex;
@@ -688,6 +713,99 @@ main {
 
 .label-expo {
   color: var(--text-secondary);
+}
+
+/* Панель диапазона PWM (мин/макс по осям) — слева ГАЗ, справа РУЛЬ */
+.output-range-panel {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  margin-top: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.output-axis {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  min-width: 0;
+  flex: 1;
+}
+
+.output-axis-y {
+  background: rgba(76, 175, 80, 0.06);
+  border-right: 2px solid rgba(76, 175, 80, 0.15);
+}
+
+.output-axis-x {
+  background: rgba(255, 152, 0, 0.06);
+  border-left: 2px solid rgba(255, 152, 0, 0.15);
+}
+
+.output-axis-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.output-axis-y .output-axis-title { color: #4caf50; }
+.output-axis-x .output-axis-title { color: #ff9800; }
+
+.output-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 140px;
+}
+
+.output-slider-label {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  min-width: 28px;
+}
+
+.output-slider-row .param-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.output-slider-row .param-slider-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  min-width: 28px;
+  text-align: right;
+}
+
+.output-axis-y .param-slider-value { color: #4caf50; }
+.output-axis-x .param-slider-value { color: #ff9800; }
+
+.output-range-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 12px 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.output-range-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.output-range-hint {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 .label-expo::before {
@@ -1009,13 +1127,18 @@ main {
   align-self: flex-end;
 }
 
-/* Область джойстика */
+/* Область джойстика (масштаб задаётся из JS: transform scale) */
 .joystick-area {
   position: relative;
   width: 120px;
   height: 120px;
   touch-action: none;
   user-select: none;
+  transform-origin: center center;
+}
+
+.joystick-wrapper {
+  overflow: visible;
 }
 
 /* База (круг) */
@@ -1233,6 +1356,14 @@ main {
     width: 34px;
     height: 34px;
     margin-top: -13px;
+  }
+
+  .output-axis {
+    padding: 10px 12px;
+  }
+
+  .output-slider-row {
+    max-width: 110px;
   }
 }
 

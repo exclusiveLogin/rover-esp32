@@ -64,14 +64,18 @@ window.AppConfig = {
     maxValue: 255,            // Максимальное значение X/Y
     expoX: 0,                 // Expo кривая руля (X): -1..+1 (0 = линейная)
     expoY: 0,                 // Expo кривая газа (Y): -1..+1 (0 = линейная)
+    outputMinX: 0,            // Руль: мин. PWM (мёртвая зона мотора). 0 = без ремапа
+    outputMaxX: 255,          // Руль: макс. PWM
+    outputMinY: 0,            // Газ: мин. PWM
+    outputMaxY: 255,          // Газ: макс. PWM
   },
   
   // === Джойстики ===
   
   JOYSTICK: {
-    // Размеры (будут пересчитаны динамически)
-    defaultRadius: 120,       // Размер по умолчанию (px)
-    stickSize: 50,            // Размер ручки (px)
+    defaultRadius: 120,
+    stickSize: 50,
+    scale: 100,               // Масштаб стиков, % (25..175, 100 = база)
   },
   
   // === UI ===
@@ -241,6 +245,8 @@ window.AppConfig = {
       STREAM_PATH: this.STREAM_PATH,
       USE_PROXY: this.USE_PROXY,
       EXTERNAL_STREAM_URL: this.EXTERNAL_STREAM_URL,
+      CONTROL: { ...this.CONTROL },
+      JOYSTICK: { ...this.JOYSTICK },
     };
     localStorage.setItem('AppConfig', JSON.stringify(toSave));
     console.log('✅ Настройки сохранены:', toSave);
@@ -255,8 +261,15 @@ window.AppConfig = {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        Object.assign(this, parsed);
-        console.log('📦 Настройки загружены из localStorage:', parsed);
+        const networkKeys = ['ESP32_HOST', 'VIDEO_HOST', 'STREAM_PORT', 'STREAM_PATH', 'USE_PROXY', 'EXTERNAL_STREAM_URL'];
+        networkKeys.forEach(k => { if (parsed[k] !== undefined) this[k] = parsed[k]; });
+        if (parsed.CONTROL && typeof parsed.CONTROL === 'object') {
+          Object.assign(this.CONTROL, parsed.CONTROL);
+        }
+        if (parsed.JOYSTICK && typeof parsed.JOYSTICK === 'object') {
+          Object.assign(this.JOYSTICK, parsed.JOYSTICK);
+        }
+        console.log('📦 Настройки загружены из localStorage');
       } catch (e) {
         console.warn('⚠️ Ошибка загрузки настроек:', e);
       }
