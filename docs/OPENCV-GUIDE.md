@@ -108,28 +108,50 @@ const { horizon, walls } = processor.lastResult;
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Canvas слои
+### Композитор и слои
 
-CV Processor и Motion Detector работают на **независимых canvas-элементах** и могут быть включены одновременно:
+Scene (CVProcessor) и Motion (MotionDetector) работают через **единый Compositor** — один RAF-цикл и один overlay canvas `#compositor-overlay`:
 
 ```
 #video-feed / #video-local    z-index: 1   (видео)
-#motion-overlay               z-index: 3   (Motion Detector — красные пиксели, BB)
-#cv-overlay                   z-index: 5   (CV Processor — горизонт, сетка, стены)
+#compositor-overlay            z-index: 5   (Compositor — все слои Scene + Motion)
 .osd-overlay                  z-index: 8   (OSD телеметрия)
 .joysticks-overlay            z-index: 10  (джойстики)
 ```
+
+#### Слои Scene (CVProcessor) — 6 штук:
+| localIndex | Имя | Описание |
+|------------|-----|----------|
+| 0 | Grayscale | Серое изображение |
+| 1 | Edges | Canny edges |
+| 2 | Lines | Hough lines (раскрашенные по типу) |
+| 3 | Horizon | Линия горизонта + сегменты |
+| 4 | Grid | Перспективная сетка |
+| 5 | Walls | Вертикальные линии (стены) |
+
+#### AppState (SSOT)
+
+Единый массив `AppState.layers` — порядок элементов = порядок отрисовки:
+
+```js
+{ processorId: 'scene', localIndex: 0, enabled: false, label: 'Gray' }
+// ... ещё 5 записей Scene + 3 записи Motion
+```
+
+Тоггл слоя: `layers[i].enabled = !layers[i].enabled`. Solo: всем `false`, одному `true`.
 
 ### Поток данных
 
 | Шаг | Описание |
 |-----|----------|
-| 1 | Захват кадра с `<video>` или `<img>` на скрытый canvas |
-| 2 | Масштабирование до `processWidth × processHeight` |
-| 3 | Конвертация в `cv.Mat` (OpenCV) |
+| 1 | Compositor вызывает `processor.tick(now)` каждый RAF-кадр |
+| 2 | Внутри tick: throttle по `processInterval`, захват кадра |
+| 3 | Масштабирование до `processWidth × processHeight`, конвертация в `cv.Mat` |
 | 4 | Обработка: edges → lines → clusters |
-| 5 | Отрисовка результата на `#cv-overlay` canvas |
-| 6 | Очистка памяти OpenCV (`.delete()`) |
+| 5 | Рендер каждого слоя в отдельный offscreen canvas |
+| 6 | Compositor вызывает `getLayer(localIndex)` для enabled слоёв |
+| 7 | `drawImage` на единый `#compositor-overlay` |
+| 8 | Очистка памяти OpenCV (`.delete()`) |
 
 ---
 
@@ -304,6 +326,14 @@ new CVProcessor(videoElement, overlayCanvas, options)
 | `isRunning()` | `boolean` | Проверка состояния |
 | `updateConfig(options)` | `void` | Обновление настроек |
 | `toggleLayer(name, enabled?)` | `void` | Вкл/выкл слоя (horizon, grid, walls) |
+
+### Compositor API (новое)
+
+| Метод | Возврат | Описание |
+|-------|---------|----------|
+| `tick(now)` | `void` | Вызывается Compositor'ом каждый RAF. Throttle по `processInterval`. |
+| `getLayer(localIndex)` | `HTMLCanvasElement \| null` | Offscreen canvas для слоя 0..5 |
+| `CVProcessor.LAYER_COUNT` | `6` | Статическое свойство: число слоёв |
 
 ### Свойства
 

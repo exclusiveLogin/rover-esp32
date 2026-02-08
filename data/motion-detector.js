@@ -23,8 +23,9 @@
  * @requires OpenCV.js (загружается асинхронно)
  * 
  * Использование:
- *   const detector = new MotionDetector(videoElement, overlayCanvas);
- *   await detector.start();
+ *   const detector = new MotionDetector(videoElement, options);
+ *   await detector.start();       // включает обработку
+ *   // Compositor вызывает detector.tick(now) + detector.getLayer(i)
  *   detector.stop();
  * 
  * ============================================================
@@ -48,15 +49,9 @@ class MotionDetector {
     dilateIterations: 2,    // итераций dilate (расширение)
     blurSize: 5,            // размер GaussianBlur ядра
 
-    // Слои визуализации (управляемые этим классом)
-    showPixels: true,       // красная маска пикселей
-    showBoxes: true,        // зелёные BB рамки
-    showContours: false,    // контуры (силуэты) движущихся объектов
-
-    // Цвета
+    // Цвета рендера слоёв
     colors: {
-      pixels: 'rgba(255, 0, 0, 0.45)',   // красный полупрозрачный
-      boxes: '#00FF00',                    // зелёный
+      boxes: '#00FF00',                    // зелёный — BB рамки
       boxText: '#00FF00',                  // текст BB
       contours: '#00FFFF',                 // cyan — контуры силуэтов
     }
@@ -68,14 +63,11 @@ class MotionDetector {
 
   /**
    * @param {HTMLVideoElement|HTMLImageElement} videoElement - источник видео
-   * @param {HTMLCanvasElement} overlayCanvas - canvas для отрисовки (#motion-overlay)
    * @param {Object} options - настройки (см. DEFAULTS)
    */
-  constructor(videoElement, overlayCanvas, options = {}) {
+  constructor(videoElement, options = {}) {
     // Элементы DOM
     this.video = videoElement;
-    this.overlay = overlayCanvas;
-    this.ctx = overlayCanvas.getContext('2d');
 
     // Скрытый canvas для захвата кадров (уменьшенное разрешение)
     this.captureCanvas = document.createElement('canvas');
@@ -91,7 +83,6 @@ class MotionDetector {
     // Состояние управления
     this._running = false;
     this._lastProcessTime = 0;
-    this._animationId = null;
     this._cvReady = false;
 
     // Стейт пайплайна (приватный)
@@ -106,6 +97,16 @@ class MotionDetector {
     // Callbacks
     this.onMotion = options.onMotion || null;
     this.onError = options.onError || null;
+
+    // ── Offscreen canvases для getLayer() (композитор) ──────
+    // 3 слоя: 0=Mask(Pixels), 1=Contours, 2=BB(BoundingBoxes)
+    this._layerCanvases = [];
+    for (let i = 0; i < 3; i++) {
+      const c = document.createElement('canvas');
+      c.width = this.config.processWidth;
+      c.height = this.config.processHeight;
+      this._layerCanvases.push(c);
+    }
 
     this._checkOpenCV();
   }
@@ -166,7 +167,7 @@ class MotionDetector {
   // 🎬 Публичный API — Управление
   // ==========================================================
 
-  /** Запуск обработки */
+  /** Запуск обработки (tick вызывается Compositor'ом) */
   async start() {
     if (!this._cvReady && !(await this.waitForOpenCV())) {
       this.onError?.('OpenCV.js не загружен');
@@ -174,7 +175,6 @@ class MotionDetector {
     }
 
     this._running = true;
-    this._processLoop();
     console.log('▶️ MotionDetector: Started');
     return true;
   }
@@ -183,58 +183,15 @@ class MotionDetector {
   stop() {
     this._running = false;
 
-    if (this._animationId) {
-      cancelAnimationFrame(this._animationId);
-      this._animationId = null;
-    }
-
     // Очистка OpenCV матриц
     this._cleanup();
-    this._clearOverlay();
+
+    // Очистка offscreen layer canvases
+    for (const c of this._layerCanvases) {
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+    }
     console.log('⏹️ MotionDetector: Stopped');
-  }
-
-  /** Переключение вкл/выкл */
-  toggle() {
-    this._running ? this.stop() : this.start();
-    return this._running;
-  }
-
-  /** Проверка состояния */
-  isRunning() {
-    return this._running;
-  }
-
-  // ==========================================================
-  // 🎬 Публичный API — Настройка слоёв
-  // ==========================================================
-
-  /**
-   * Установить видимость слоя
-   * @param {string} name - 'pixels' или 'boxes'
-   * @param {boolean} enabled
-   */
-  setLayer(name, enabled) {
-    const key = `show${name.charAt(0).toUpperCase() + name.slice(1)}`;
-    if (key in this.config) {
-      this.config[key] = enabled;
-      console.log(`🔴 MotionDetector: layer '${name}' = ${enabled}`);
-    }
-  }
-
-  /**
-   * Переключить видимость слоя
-   * @param {string} name - 'pixels' или 'boxes'
-   * @returns {boolean} новое состояние
-   */
-  toggleLayer(name) {
-    const key = `show${name.charAt(0).toUpperCase() + name.slice(1)}`;
-    if (key in this.config) {
-      this.config[key] = !this.config[key];
-      console.log(`🔴 MotionDetector: layer '${name}' = ${this.config[key]}`);
-      return this.config[key];
-    }
-    return false;
   }
 
   // ==========================================================
@@ -275,30 +232,41 @@ class MotionDetector {
     this.config.dilateIterations = Math.max(0, Math.min(5, value));
   }
 
+  // ==========================================================
+  // 🎬 Compositor API — tick() + getLayer()
+  // ==========================================================
+
   /**
-   * Обновление конфигурации
-   * @param {Object} options
+   * Вызывается композитором каждый кадр.
+   * Внутри — throttle по processInterval.
+   * @param {number} now - performance.now() timestamp
    */
-  updateConfig(options) {
-    Object.assign(this.config, options);
-  }
+  tick(now) {
+    if (!this._running || !this._cvReady) return;
 
-  // ==========================================================
-  // 🔄 Приватный пайплайн — Главный цикл
-  // ==========================================================
-
-  /** Цикл обработки кадров (requestAnimationFrame) */
-  _processLoop() {
-    if (!this._running) return;
-
-    const now = Date.now();
     if (now - this._lastProcessTime >= this.config.processInterval) {
       this._lastProcessTime = now;
       this._processFrame();
     }
-
-    this._animationId = requestAnimationFrame(() => this._processLoop());
   }
+
+  /**
+   * Возвращает offscreen canvas для слоя.
+   * @param {number} localIndex - 0..2
+   *   0=Mask(Pixels), 1=Contours, 2=BB(BoundingBoxes)
+   * @returns {HTMLCanvasElement|null}
+   */
+  getLayer(localIndex) {
+    if (localIndex < 0 || localIndex >= this._layerCanvases.length) return null;
+    return this._layerCanvases[localIndex];
+  }
+
+  /** Число слоёв этого процессора */
+  static get LAYER_COUNT() { return 3; }
+
+  // ==========================================================
+  // 🔄 Приватный пайплайн — Обработка кадра
+  // ==========================================================
 
   /** Обработка одного кадра */
   _processFrame() {
@@ -319,17 +287,11 @@ class MotionDetector {
       // 3. Вычисление маски движения
       this._computeDiffMask();
 
-      // 4. Поиск регионов (если нужны BB, контуры или callback с регионами)
-      if (this.config.showBoxes || this.config.showContours || this.onMotion) {
-        this._findRegions();
-      } else {
-        this._regions = [];
-        this._contourPoints = [];
-        this._centerOfMass = null;
-      }
+      // 4. Поиск регионов (всегда — нужны для getLayer и превью)
+      this._findRegions();
 
-      // 5. Рендер
-      this._render();
+      // 5. Рендер в offscreen layer canvases
+      this._renderLayerCanvases();
 
       // 6. Callback с метаданными
       if (this.onMotion) {
@@ -366,24 +328,10 @@ class MotionDetector {
   // 📷 Приватный пайплайн — Захват кадра
   // ==========================================================
 
-  /** Синхронизация размеров canvas */
+  /** Синхронизация размеров capture canvas */
   _syncCanvasSize() {
-    const { video, overlay, captureCanvas, config } = this;
+    const { captureCanvas, config } = this;
 
-    const isVideo = video.tagName === 'VIDEO';
-    const srcWidth = isVideo ? video.videoWidth : video.naturalWidth;
-    const srcHeight = isVideo ? video.videoHeight : video.naturalHeight;
-
-    // Overlay = размер на экране
-    const displayW = video.clientWidth || srcWidth;
-    const displayH = video.clientHeight || srcHeight;
-
-    if (overlay.width !== displayW || overlay.height !== displayH) {
-      overlay.width = displayW;
-      overlay.height = displayH;
-    }
-
-    // Capture = уменьшенное разрешение для обработки
     if (captureCanvas.width !== config.processWidth) {
       captureCanvas.width = config.processWidth;
       captureCanvas.height = config.processHeight;
@@ -601,16 +549,15 @@ class MotionDetector {
           //  чтобы можно было рисовать через ctx.lineTo()
           //  после того как cv.MatVector будет удалён.
           //
-          if (config.showContours) {
-            const points = [];
-            for (let j = 0; j < contour.data32S.length; j += 2) {
-              points.push({
-                x: contour.data32S[j],
-                y: contour.data32S[j + 1]
-              });
-            }
-            this._contourPoints.push(points);
+          // Всегда извлекаем точки контуров (для getLayer и превью)
+          const points = [];
+          for (let j = 0; j < contour.data32S.length; j += 2) {
+            points.push({
+              x: contour.data32S[j],
+              y: contour.data32S[j + 1]
+            });
           }
+          this._contourPoints.push(points);
 
           // ── Накапливаем данные для центра масс ───────────────
           //
@@ -652,162 +599,96 @@ class MotionDetector {
   // 🎨 Приватный пайплайн — Визуализация
   // ==========================================================
 
-  /** Рендер включённых слоёв на canvas */
-  _render() {
+  /** Рендер каждого слоя в offscreen canvas (для композитора) */
+  _renderLayerCanvases() {
     const { config } = this;
 
-    this._clearOverlay();
+    const video = this.video;
+    const isVideo = video.tagName === 'VIDEO';
+    const displayW = video.clientWidth || (isVideo ? video.videoWidth : video.naturalWidth);
+    const displayH = video.clientHeight || (isVideo ? video.videoHeight : video.naturalHeight);
 
-    if (config.showPixels && this._mask) {
-      this._renderPixelMask();
+    // Синхронизация размеров offscreen canvases
+    for (let i = 0; i < this._layerCanvases.length; i++) {
+      const c = this._layerCanvases[i];
+      if (c.width !== displayW || c.height !== displayH) {
+        c.width = displayW;
+        c.height = displayH;
+      }
+      c.getContext('2d').clearRect(0, 0, displayW, displayH);
     }
 
-    if (config.showContours && this._contourPoints.length > 0) {
-      this._renderContours();
+    // Layer 0: Mask (Pixels)
+    if (this._mask) {
+      this._renderPixelMaskTo(this._layerCanvases[0].getContext('2d'), displayW, displayH);
     }
 
-    if (config.showBoxes && this._regions.length > 0) {
-      this._renderBoundingBoxes();
+    // Layer 1: Contours
+    if (this._contourPoints.length > 0) {
+      this._renderContoursTo(this._layerCanvases[1].getContext('2d'), displayW, displayH);
+    }
+
+    // Layer 2: BB (Bounding Boxes)
+    if (this._regions.length > 0) {
+      this._renderBBTo(this._layerCanvases[2].getContext('2d'), displayW, displayH);
     }
   }
 
-  /**
-   * Рендер красной маски изменённых пикселей
-   * Читает: this._mask (CV_8UC1, processWidth × processHeight)
-   * Рисует: полупрозрачные красные пиксели на overlay canvas
-   */
-  _renderPixelMask() {
-    const { overlay, ctx, config } = this;
+  /** Рендер маски пикселей на произвольный ctx */
+  _renderPixelMaskTo(ctx, w, h) {
     const mask = this._mask;
-
     if (!mask) return;
 
-    const width = mask.cols;    // = processWidth (напр. 320)
-    const height = mask.rows;   // = processHeight (напр. 240)
+    const width = mask.cols;
+    const height = mask.rows;
 
-    // ── Стратегия рендера ──────────────────────────────────────
-    //
-    //  Маска живёт в координатах обработки (320×240),
-    //  а overlay canvas — в координатах дисплея (напр. 640×480).
-    //
-    //  Подход: создаём временный canvas размером маски,
-    //  попиксельно заполняем красным где mask > 0,
-    //  затем масштабируем drawImage на overlay canvas.
-    //
-    //  imageSmoothingEnabled = false → чёткие «пиксельные» края,
-    //  без антиалиасинга. Выглядит как тепловая карта.
-    //
-
-    // Временный canvas для попиксельного заполнения
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = width;
     tempCanvas.height = height;
     const tempCtx = tempCanvas.getContext('2d');
     const imageData = tempCtx.createImageData(width, height);
-    const data = imageData.data;  // Uint8ClampedArray [R,G,B,A, R,G,B,A, ...]
+    const data = imageData.data;
 
-    // RGBA для пикселей движения (красный, ~45% прозрачности)
-    const r = 255, g = 0, b = 0;
-    const alpha = 115;  // 115/255 ≈ 0.45
-
-    // ── Попиксельное заполнение ────────────────────────────────
-    //
-    //  mask.data — Uint8Array, один байт на пиксель:
-    //    0   = фон (нет движения)
-    //    255 = движение
-    //
-    //  imageData.data — RGBA, 4 байта на пиксель:
-    //    [R, G, B, A] для каждого пикселя
-    //
-    //  Пиксели с mask=0 остаются (0,0,0,0) → полностью прозрачные.
-    //  Пиксели с mask>0 → (255,0,0,115) → полупрозрачный красный.
-    //
     for (let i = 0; i < width * height; i++) {
       if (mask.data[i] > 0) {
-        data[i * 4]     = r;
-        data[i * 4 + 1] = g;
-        data[i * 4 + 2] = b;
-        data[i * 4 + 3] = alpha;
+        data[i * 4]     = 255;
+        data[i * 4 + 1] = 0;
+        data[i * 4 + 2] = 0;
+        data[i * 4 + 3] = 115;
       }
     }
-
     tempCtx.putImageData(imageData, 0, 0);
 
-    // ── Масштабирование на overlay canvas ──────────────────────
-    //
-    //  drawImage(src, dx, dy, dw, dh) — растягивает tempCanvas
-    //  (320×240) на размер overlay (640×480 и т.д.).
-    //
-    //  imageSmoothingEnabled = false отключает билинейную
-    //  интерполяцию → пиксели масштабируются как «блоки»,
-    //  создавая характерный вид тепловой карты движения.
-    //
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(tempCanvas, 0, 0, overlay.width, overlay.height);
+    ctx.drawImage(tempCanvas, 0, 0, w, h);
   }
 
-  /**
-   * Рендер контуров (силуэтов) движущихся объектов
-   * Читает: this._contourPoints (массив массивов { x, y })
-   * Рисует: замкнутые линии контуров cyan-цветом на overlay canvas
-   */
-  _renderContours() {
-    const { overlay, ctx, config } = this;
-
-    // ── Масштабирование координат ──────────────────────────────
-    //
-    //  Точки контуров хранятся в координатах обработки
-    //  (processWidth × processHeight). Масштабируем при рисовании.
-    //
-    const scaleX = overlay.width / config.processWidth;
-    const scaleY = overlay.height / config.processHeight;
+  /** Рендер контуров на произвольный ctx */
+  _renderContoursTo(ctx, w, h) {
+    const { config } = this;
+    const scaleX = w / config.processWidth;
+    const scaleY = h / config.processHeight;
 
     ctx.strokeStyle = config.colors.contours;
     ctx.lineWidth = 2;
 
-    // ── Рисуем каждый контур как замкнутый путь ────────────────
-    //
-    //  Контур — массив точек [{x, y}, ...], описывающих границу
-    //  связной области движения. CHAIN_APPROX_SIMPLE сжимает
-    //  прямолинейные участки до вершин (углов), поэтому точек
-    //  немного — рисовать через lineTo() дёшево.
-    //
-    //  closePath() замыкает контур — соединяет последнюю точку
-    //  с первой, образуя силуэт объекта.
-    //
     for (const points of this._contourPoints) {
       if (points.length < 2) continue;
-
       ctx.beginPath();
       ctx.moveTo(points[0].x * scaleX, points[0].y * scaleY);
-
       for (let i = 1; i < points.length; i++) {
         ctx.lineTo(points[i].x * scaleX, points[i].y * scaleY);
       }
-
       ctx.closePath();
       ctx.stroke();
     }
   }
 
-  /**
-   * Рендер зелёных bounding box-ов вокруг областей движения
-   * Читает: this._regions (массив { x, y, width, height })
-   * Рисует: зелёные рамки + подписи площади на overlay canvas
-   */
-  _renderBoundingBoxes() {
-    const { overlay, ctx, config } = this;
-
-    // ── Масштабирование координат ──────────────────────────────
-    //
-    //  this._regions содержит координаты в пространстве
-    //  обработки (processWidth × processHeight, напр. 320×240).
-    //
-    //  Overlay canvas имеет размер дисплея (напр. 640×480).
-    //  Умножаем координаты на scale для корректного отображения.
-    //
-    const scaleX = overlay.width / config.processWidth;
-    const scaleY = overlay.height / config.processHeight;
+  /** Рендер bounding boxes на произвольный ctx */
+  _renderBBTo(ctx, w, h) {
+    const { config } = this;
+    const scaleX = w / config.processWidth;
+    const scaleY = h / config.processHeight;
 
     ctx.strokeStyle = config.colors.boxes;
     ctx.lineWidth = 2;
@@ -815,17 +696,11 @@ class MotionDetector {
     ctx.fillStyle = config.colors.boxText;
 
     for (const region of this._regions) {
-      // Перевод из координат обработки → координаты дисплея
       const x = region.x * scaleX;
       const y = region.y * scaleY;
-      const w = region.width * scaleX;
-      const h = region.height * scaleY;
-
-      // Рамка (strokeRect — только обводка, без заливки)
-      ctx.strokeRect(x, y, w, h);
-
-      // Подпись: площадь BB в пикселях обработки
-      // Помогает оценить размер области движения
+      const rw = region.width * scaleX;
+      const rh = region.height * scaleY;
+      ctx.strokeRect(x, y, rw, rh);
       const area = region.width * region.height;
       ctx.fillText(`${area}px²`, x + 2, y - 4);
     }
@@ -834,11 +709,6 @@ class MotionDetector {
   // ==========================================================
   // 🧹 Приватные утилиты
   // ==========================================================
-
-  /** Очистка overlay */
-  _clearOverlay() {
-    this.ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
-  }
 
   /** Очистка OpenCV матриц */
   _cleanup() {

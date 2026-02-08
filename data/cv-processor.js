@@ -20,8 +20,9 @@
  * @requires OpenCV.js (загружается асинхронно)
  * 
  * Использование:
- *   const processor = new CVProcessor(videoElement, overlayCanvas);
- *   await processor.start();
+ *   const processor = new CVProcessor(videoElement, options);
+ *   await processor.start();       // включает обработку
+ *   // Compositor вызывает processor.tick(now) + processor.getLayer(i)
  *   processor.stop();
  * 
  * ============================================================
@@ -64,8 +65,6 @@ class CVProcessor {
       walls: '#FF6600'
     },
     
-    // Debug
-    debug: false  // Вывод промежуточных этапов на debug-canvas
   };
   
   // ==========================================================
@@ -74,14 +73,11 @@ class CVProcessor {
   
   /**
    * @param {HTMLVideoElement|HTMLImageElement} videoElement - источник видео
-   * @param {HTMLCanvasElement} overlayCanvas - canvas для отрисовки
    * @param {Object} options - настройки (см. DEFAULTS)
    */
-  constructor(videoElement, overlayCanvas, options = {}) {
+  constructor(videoElement, options = {}) {
     // Элементы DOM
     this.video = videoElement;
-    this.overlay = overlayCanvas;
-    this.ctx = overlayCanvas.getContext('2d');
     
     // Скрытый canvas для захвата кадров (уменьшенное разрешение)
     this.captureCanvas = document.createElement('canvas');
@@ -91,14 +87,12 @@ class CVProcessor {
     this.config = {
       ...CVProcessor.DEFAULTS,
       colors: { ...CVProcessor.DEFAULTS.colors },
-      ...options,
-      enabled: false
+      ...options
     };
     
     // Состояние
     this._running = false;
     this._lastProcessTime = 0;
-    this._animationId = null;
     this._cvReady = false;
     
     // Буферы для временного сглаживания (медианный фильтр)
@@ -114,12 +108,15 @@ class CVProcessor {
     this.onProcess = options.onProcess || null;
     this.onError = options.onError || null;
     
-    // Debug canvases (для визуализации промежуточных этапов)
-    this._debugCanvases = {
-      gray: null,
-      edges: null,
-      lines: null
-    };
+    // ── Offscreen canvases для getLayer() (композитор) ──────
+    // 6 слоёв: 0=Grayscale, 1=Edges, 2=Lines, 3=Horizon, 4=Grid, 5=Walls
+    this._layerCanvases = [];
+    for (let i = 0; i < 6; i++) {
+      const c = document.createElement('canvas');
+      c.width = this.config.processWidth;
+      c.height = this.config.processHeight;
+      this._layerCanvases.push(c);
+    }
     
     this._checkOpenCV();
   }
@@ -182,7 +179,7 @@ class CVProcessor {
   // 🎬 Управление
   // ==========================================================
   
-  /** Запуск обработки */
+  /** Запуск обработки (tick вызывается Compositor'ом) */
   async start() {
     if (!this._cvReady && !(await this.waitForOpenCV())) {
       this.onError?.('OpenCV.js не загружен');
@@ -191,7 +188,6 @@ class CVProcessor {
     
     this.config.enabled = true;
     this._running = true;
-    this._processLoop();
     console.log('▶️ CVProcessor: Started');
     return true;
   }
@@ -201,78 +197,49 @@ class CVProcessor {
     this._running = false;
     this.config.enabled = false;
     
-    if (this._animationId) {
-      cancelAnimationFrame(this._animationId);
-      this._animationId = null;
+    // Очистка offscreen layer canvases
+    for (const c of this._layerCanvases) {
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
     }
-    
-    this._clearOverlay();
     console.log('⏹️ CVProcessor: Stopped');
   }
   
-  /** Переключение вкл/выкл */
-  toggle() {
-    this._running ? this.stop() : this.start();
-    return this._running;
-  }
-  
-  /** Проверка состояния */
-  isRunning() {
-    return this._running;
-  }
-  
   // ==========================================================
-  // 👁️ Debug режим
+  // 🎬 Compositor API — tick() + getLayer()
   // ==========================================================
-  
+
   /**
-   * Установка debug-канвасов для отображения промежуточных этапов CV
-   * @param {Object} canvases - объект с canvas элементами
-   * @param {HTMLCanvasElement} canvases.gray - canvas для grayscale
-   * @param {HTMLCanvasElement} canvases.edges - canvas для Canny edges
-   * @param {HTMLCanvasElement} canvases.lines - canvas для Hough lines
+   * Вызывается композитором каждый кадр.
+   * Внутри — throttle по processInterval.
+   * @param {number} now - performance.now() timestamp
    */
-  setDebugCanvases(canvases) {
-    if (canvases.gray) this._debugCanvases.gray = canvases.gray;
-    if (canvases.edges) this._debugCanvases.edges = canvases.edges;
-    if (canvases.lines) this._debugCanvases.lines = canvases.lines;
-    console.log('👁️ CVProcessor: Debug canvases configured');
-  }
-  
-  /**
-   * Включение/выключение debug режима
-   * @param {boolean} enabled - true для включения
-   */
-  setDebug(enabled) {
-    this.config.debug = enabled;
-    console.log(`👁️ CVProcessor: Debug mode ${enabled ? 'ON' : 'OFF'}`);
-  }
-  
-  /**
-   * Переключение debug режима
-   * @returns {boolean} - новое состояние
-   */
-  toggleDebug() {
-    this.setDebug(!this.config.debug);
-    return this.config.debug;
-  }
-  
-  // ==========================================================
-  // 🔄 Главный цикл обработки
-  // ==========================================================
-  
-  /** Цикл обработки кадров (requestAnimationFrame) */
-  _processLoop() {
-    if (!this._running) return;
-    
-    const now = Date.now();
+  tick(now) {
+    if (!this._running || !this._cvReady) return;
+
     if (now - this._lastProcessTime >= this.config.processInterval) {
       this._lastProcessTime = now;
       this._processFrame();
     }
-    
-    this._animationId = requestAnimationFrame(() => this._processLoop());
   }
+
+  /**
+   * Возвращает offscreen canvas для слоя.
+   * @param {number} localIndex - 0..5
+   *   0=Grayscale, 1=Edges, 2=Lines, 3=Horizon, 4=Grid, 5=Walls
+   * @returns {HTMLCanvasElement|null}
+   */
+  getLayer(localIndex) {
+    if (localIndex < 0 || localIndex >= this._layerCanvases.length) return null;
+    return this._layerCanvases[localIndex];
+  }
+
+  /** Число слоёв этого процессора */
+  static get LAYER_COUNT() { return 6; }
+
+  // ==========================================================
+  // 🔄 Обработка кадра
+  // ==========================================================
   
   /** Обработка одного кадра */
   _processFrame() {
@@ -285,7 +252,9 @@ class CVProcessor {
       const result = this._analyze(src);
       this.lastResult = { ...result, timestamp: Date.now() };
       
-      this._render(result);
+      // Рендер в offscreen layer canvases (для композитора)
+      this._renderLayers(result);
+      
       this.onProcess?.(result);
       
       src.delete();  // ВАЖНО: освобождаем память OpenCV
@@ -300,25 +269,10 @@ class CVProcessor {
   // 📷 Захват кадра
   // ==========================================================
   
-  /** Синхронизация размеров canvas */
+  /** Синхронизация размеров capture canvas */
   _syncCanvasSize() {
-    const { video, overlay, captureCanvas, config } = this;
+    const { captureCanvas, config } = this;
     
-    // Размеры источника
-    const isVideo = video.tagName === 'VIDEO';
-    const srcWidth = isVideo ? video.videoWidth : video.naturalWidth;
-    const srcHeight = isVideo ? video.videoHeight : video.naturalHeight;
-    
-    // Overlay = размер на экране
-    const displayW = video.clientWidth || srcWidth;
-    const displayH = video.clientHeight || srcHeight;
-    
-    if (overlay.width !== displayW || overlay.height !== displayH) {
-      overlay.width = displayW;
-      overlay.height = displayH;
-    }
-    
-    // Capture = уменьшенное разрешение для обработки
     if (captureCanvas.width !== config.processWidth) {
       captureCanvas.width = config.processWidth;
       captureCanvas.height = config.processHeight;
@@ -382,10 +336,9 @@ class CVProcessor {
         params.houghMaxGap
       );
       
-      // 👁️ Debug: отображение промежуточных этапов
-      if (this.config.debug) {
-        this._renderDebugCanvases(gray, edges, lines, width, height);
-      }
+      // Заполняем layer canvases 0-2 (Grayscale, Edges, Lines)
+      // + legacy debug canvases если debug включён
+      this._renderDebugCanvases(gray, edges, lines, width, height);
       
       // 4. Классификация и кластеризация линий
       return this._classifyLines(lines, width, height, params);
@@ -399,7 +352,7 @@ class CVProcessor {
   }
   
   /**
-   * 👁️ Отрисовка debug-канвасов (промежуточные этапы CV)
+   * Рендер слоёв 0-2 (Grayscale, Edges, Lines) в offscreen canvases
    * @param {cv.Mat} gray - grayscale изображение
    * @param {cv.Mat} edges - Canny edges
    * @param {cv.Mat} lines - Hough lines
@@ -407,59 +360,59 @@ class CVProcessor {
    * @param {number} height - высота изображения
    */
   _renderDebugCanvases(gray, edges, lines, width, height) {
-    const { _debugCanvases: canvases } = this;
+    const layers = this._layerCanvases;
     
     try {
-      // 1. Grayscale
-      if (canvases.gray) {
-        cv.imshow(canvases.gray, gray);
+      // Layer 0: Grayscale (яркость → альфа)
+      if (layers[0].width !== width || layers[0].height !== height) {
+        layers[0].width = width;
+        layers[0].height = height;
       }
+      cv.imshow(layers[0], gray);
+      this._brightnessToAlpha(layers[0]);
       
-      // 2. Canny Edges
-      if (canvases.edges) {
-        cv.imshow(canvases.edges, edges);
+      // Layer 1: Canny Edges (белые края → видимые, чёрный фон → прозрачный)
+      if (layers[1].width !== width || layers[1].height !== height) {
+        layers[1].width = width;
+        layers[1].height = height;
       }
+      cv.imshow(layers[1], edges);
+      this._brightnessToAlpha(layers[1]);
       
-      // 3. Lines visualization (рисуем линии на чёрном фоне)
-      if (canvases.lines) {
-        const linesVis = new cv.Mat.zeros(height, width, cv.CV_8UC3);
+      // Layer 2: Lines visualization (цветные линии → видимые, чёрный фон → прозрачный)
+      const linesVis = new cv.Mat.zeros(height, width, cv.CV_8UC3);
+      
+      for (let i = 0; i < lines.rows; i++) {
+        const x1 = lines.data32S[i * 4];
+        const y1 = lines.data32S[i * 4 + 1];
+        const x2 = lines.data32S[i * 4 + 2];
+        const y2 = lines.data32S[i * 4 + 3];
         
-        // Рисуем все найденные линии
-        for (let i = 0; i < lines.rows; i++) {
-          const x1 = lines.data32S[i * 4];
-          const y1 = lines.data32S[i * 4 + 1];
-          const x2 = lines.data32S[i * 4 + 2];
-          const y2 = lines.data32S[i * 4 + 3];
-          
-          // Определяем угол для раскраски
-          const angle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI);
-          const normAngle = angle > 90 ? 180 - angle : angle;
-          
-          // Горизонтальные - зелёные, вертикальные - красные, остальные - жёлтые
-          let color;
-          if (normAngle < this.config.horizonMaxAngle) {
-            color = new cv.Scalar(0, 255, 0);   // Зелёный - горизонтальные
-          } else if (normAngle > 90 - this.config.wallAngleTolerance) {
-            color = new cv.Scalar(255, 100, 0); // Оранжевый - вертикальные (walls)
-          } else {
-            color = new cv.Scalar(100, 100, 255); // Бледно-красный - остальные
-          }
-          
-          cv.line(
-            linesVis,
-            new cv.Point(x1, y1),
-            new cv.Point(x2, y2),
-            color,
-            2
-          );
+        const angle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI);
+        const normAngle = angle > 90 ? 180 - angle : angle;
+        
+        let color;
+        if (normAngle < this.config.horizonMaxAngle) {
+          color = new cv.Scalar(0, 255, 0);
+        } else if (normAngle > 90 - this.config.wallAngleTolerance) {
+          color = new cv.Scalar(255, 100, 0);
+        } else {
+          color = new cv.Scalar(100, 100, 255);
         }
         
-        cv.imshow(canvases.lines, linesVis);
-        linesVis.delete();
+        cv.line(linesVis, new cv.Point(x1, y1), new cv.Point(x2, y2), color, 2);
       }
       
+      if (layers[2].width !== width || layers[2].height !== height) {
+        layers[2].width = width;
+        layers[2].height = height;
+      }
+      cv.imshow(layers[2], linesVis);
+      this._brightnessToAlpha(layers[2]);
+      linesVis.delete();
+      
     } catch (e) {
-      console.warn('👁️ CVProcessor debug render error:', e);
+      console.warn('CVProcessor layer 0-2 render error:', e);
     }
   }
   
@@ -762,65 +715,78 @@ class CVProcessor {
   // 🎨 Визуализация
   // ==========================================================
   
-  /** Отрисовка результатов */
-  _render(result) {
-    const { config, overlay } = this;
+  /**
+   * Рендер в offscreen layer canvases (для композитора).
+   * Layers 0-2 (Grayscale, Edges, Lines) заполняются в _renderDebugCanvases.
+   * Layers 3-5 (Horizon, Grid, Walls) рендерятся здесь.
+   */
+  _renderLayers(result) {
+    const { config } = this;
     const { horizon, walls } = result;
-    
+
+    // Размеры для overlay-слоёв (3, 4, 5) = display size
+    const video = this.video;
+    const isVideo = video.tagName === 'VIDEO';
+    const displayW = video.clientWidth || (isVideo ? video.videoWidth : video.naturalWidth);
+    const displayH = video.clientHeight || (isVideo ? video.videoHeight : video.naturalHeight);
+
     // Масштаб: обработка → дисплей
-    const scaleX = overlay.width / config.processWidth;
-    const scaleY = overlay.height / config.processHeight;
-    
-    this._clearOverlay();
-    
-    if (config.showHorizon && horizon) {
-      this._drawHorizon(horizon, scaleX, scaleY);
+    const scaleX = displayW / config.processWidth;
+    const scaleY = displayH / config.processHeight;
+
+    // Синхронизация размеров overlay-слоёв (3, 4, 5)
+    for (let i = 3; i < 6; i++) {
+      const c = this._layerCanvases[i];
+      if (c.width !== displayW || c.height !== displayH) {
+        c.width = displayW;
+        c.height = displayH;
+      }
+      c.getContext('2d').clearRect(0, 0, displayW, displayH);
     }
-    
-    if (config.showGrid && horizon) {
-      this._drawGrid(horizon, scaleX, scaleY);
+
+    // Layer 3: Horizon
+    if (horizon) {
+      const ctx3 = this._layerCanvases[3].getContext('2d');
+      this._drawHorizonToCtx(ctx3, horizon, scaleX, scaleY, displayW);
     }
-    
-    if (config.showWalls && walls.length > 0) {
-      this._drawWalls(walls, scaleX, scaleY);
+
+    // Layer 4: Grid
+    if (horizon) {
+      const ctx4 = this._layerCanvases[4].getContext('2d');
+      this._drawGridToCtx(ctx4, horizon, scaleX, scaleY, displayW, displayH);
+    }
+
+    // Layer 5: Walls
+    if (walls && walls.length > 0) {
+      const ctx5 = this._layerCanvases[5].getContext('2d');
+      this._drawWallsToCtx(ctx5, walls, scaleX, scaleY);
     }
   }
-  
-  /** Очистка overlay */
-  _clearOverlay() {
-    this.ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
-  }
-  
-  /** Отрисовка линии горизонта */
-  _drawHorizon(horizon, scaleX, scaleY) {
-    const { ctx, overlay, config } = this;
+
+  /** Отрисовка горизонта на произвольный ctx */
+  _drawHorizonToCtx(ctx, horizon, scaleX, scaleY, canvasWidth) {
+    const { config } = this;
     const { y, angle, confidence, segments, segmentCount } = horizon;
-    
     const yScaled = y * scaleY;
     const alpha = 0.5 + confidence * 0.5;
-    
-    // Основная линия (пунктир)
+
     ctx.strokeStyle = this._colorWithAlpha(config.colors.horizon, alpha);
     ctx.lineWidth = 2;
     ctx.setLineDash([10, 5]);
-    
     ctx.beginPath();
     if (Math.abs(angle) > 0.5) {
-      // Наклонная линия
       const rad = angle * Math.PI / 180;
-      const halfW = overlay.width / 2;
+      const halfW = canvasWidth / 2;
       const offset = Math.tan(rad) * halfW;
       ctx.moveTo(0, yScaled - offset);
-      ctx.lineTo(overlay.width, yScaled + offset);
+      ctx.lineTo(canvasWidth, yScaled + offset);
     } else {
-      // Горизонтальная линия
       ctx.moveTo(0, yScaled);
-      ctx.lineTo(overlay.width, yScaled);
+      ctx.lineTo(canvasWidth, yScaled);
     }
     ctx.stroke();
     ctx.setLineDash([]);
-    
-    // Сегменты кластера (полупрозрачные)
+
     if (segments && segments.length > 1) {
       ctx.strokeStyle = 'rgba(0, 255, 0, 0.3)';
       ctx.lineWidth = 4;
@@ -831,27 +797,24 @@ class CVProcessor {
         ctx.stroke();
       }
     }
-    
-    // Метка
+
     ctx.fillStyle = config.colors.horizon;
     ctx.font = '12px monospace';
     const angleStr = Math.abs(angle) > 0.5 ? ` ∠${angle.toFixed(1)}°` : '';
-    ctx.fillText(`Горизонт ${Math.round(confidence * 100)}% (${segmentCount} сегментов)${angleStr}`, 10, yScaled - 5);
+    ctx.fillText(`Горизонт ${Math.round(confidence * 100)}% (${segmentCount})${angleStr}`, 10, yScaled - 5);
   }
-  
-  /** Отрисовка перспективной сетки */
-  _drawGrid(horizon, scaleX, scaleY) {
-    const { ctx, overlay, config } = this;
-    
-    const vpX = (config.processWidth / 2) * scaleX;  // точка схода X
-    const vpY = horizon.y * scaleY;                  // точка схода Y
-    const bottomY = overlay.height;
-    const width = overlay.width;
-    
+
+  /** Отрисовка сетки на произвольный ctx */
+  _drawGridToCtx(ctx, horizon, scaleX, scaleY, canvasWidth, canvasHeight) {
+    const { config } = this;
+    const vpX = (config.processWidth / 2) * scaleX;
+    const vpY = horizon.y * scaleY;
+    const bottomY = canvasHeight;
+    const width = canvasWidth;
+
     ctx.strokeStyle = config.colors.grid;
     ctx.lineWidth = 1;
-    
-    // Вертикальные линии (от точки схода к низу)
+
     const gridCols = 12;
     for (let i = 0; i <= gridCols; i++) {
       const t = i / gridCols;
@@ -860,36 +823,26 @@ class CVProcessor {
       ctx.lineTo(t * width, bottomY);
       ctx.stroke();
     }
-    
-    // Горизонтальные линии (параллельны горизонту)
+
     const gridRows = 8;
     const angleRad = (horizon.angle || 0) * Math.PI / 180;
-    
     for (let i = 1; i <= gridRows; i++) {
-      const t = Math.pow(i / gridRows, 1.5);  // нелинейное распределение
+      const t = Math.pow(i / gridRows, 1.5);
       const y = vpY + t * (bottomY - vpY);
-      
-      // Ширина с перспективой
       const perspScale = (y - vpY) / (bottomY - vpY);
       const halfW = (width / 2) * perspScale * 1.2;
-      
-      // Наклон параллельно горизонту
       const offset = Math.tan(angleRad) * halfW;
-      
       ctx.beginPath();
       ctx.moveTo(vpX - halfW, y - offset);
       ctx.lineTo(vpX + halfW, y + offset);
       ctx.stroke();
     }
   }
-  
-  /** Отрисовка вертикальных линий (стены) */
-  _drawWalls(walls, scaleX, scaleY) {
-    const { ctx, config } = this;
-    
-    ctx.strokeStyle = config.colors.walls;
+
+  /** Отрисовка стен на произвольный ctx */
+  _drawWallsToCtx(ctx, walls, scaleX, scaleY) {
+    ctx.strokeStyle = this.config.colors.walls;
     ctx.lineWidth = 2;
-    
     for (const wall of walls) {
       ctx.beginPath();
       ctx.moveTo(wall.x1 * scaleX, wall.y1 * scaleY);
@@ -897,7 +850,23 @@ class CVProcessor {
       ctx.stroke();
     }
   }
+
   
+  /**
+   * Конвертация яркости в альфа-канал.
+   * Чёрный (0) → прозрачный, белый/цветной → непрозрачный.
+   * Позволяет слоям 0-2 прозрачно накладываться поверх видео.
+   */
+  _brightnessToAlpha(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i + 3] = Math.max(d[i], d[i + 1], d[i + 2]);
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
   /** Добавление альфа-канала к цвету */
   _colorWithAlpha(color, alpha) {
     // #RRGGBB → rgba(r, g, b, alpha)
@@ -917,14 +886,6 @@ class CVProcessor {
   /** Обновление конфигурации */
   updateConfig(options) {
     Object.assign(this.config, options);
-  }
-  
-  /** Переключение слоя (horizon, grid, walls) */
-  toggleLayer(layer, enabled) {
-    const key = `show${layer.charAt(0).toUpperCase() + layer.slice(1)}`;
-    if (key in this.config) {
-      this.config[key] = enabled ?? !this.config[key];
-    }
   }
 }
 

@@ -32,11 +32,8 @@
           <span>Загрузка стрима...</span>
         </div>
         
-        <!-- 🔴 Motion Overlay (отдельный canvas, z-index: 3) -->
-        <canvas id="motion-overlay" class="motion-overlay"></canvas>
-        
-        <!-- 👁️ CV Overlay (OpenCV.js, z-index: 5) -->
-        <canvas id="cv-overlay" class="cv-overlay"></canvas>
+        <!-- 🎬 Compositor Overlay (единый canvas для всех слоёв) -->
+        <canvas id="compositor-overlay" class="compositor-overlay"></canvas>
         
         <!-- 📊 OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
         <div class="osd-overlay" id="osd-overlay">
@@ -141,8 +138,11 @@
         <button id="led-btn" class="btn led">
           <span class="icon">💡</span> LED
         </button>
-        <button id="cv-btn" class="btn cv" title="Computer Vision (OpenCV.js)">
-          <span class="icon">👁️</span> CV
+        <button id="base-layer-btn" class="btn base-layer active" title="Базовый слой (видео)">
+          <span class="icon">🖼️</span> Base
+        </button>
+        <button id="cv-btn" class="btn cv" title="Scene Analysis (OpenCV.js)">
+          <span class="icon">👁️</span> Scene
         </button>
         <button id="motion-btn" class="btn motion" title="Motion Detection">
           <span class="icon">🔴</span> Motion
@@ -219,93 +219,188 @@
         </div>
       </div>
 
-      <!-- 👁️ CV Debug (промежуточные этапы обработки) -->
-      <div class="cv-debug-section" id="cv-debug-section" style="display: none;">
-        <div class="setting-row">
-          <span class="setting-label">👁️ CV Debug</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn" id="cv-debug-toggle" data-active="false">OFF</button>
+      <!-- ═══════════════════════════════════════════════════════
+           👁️ SCENE (CVProcessor) — настройки + превью слоёв
+           ═══════════════════════════════════════════════════════ -->
+      <div class="processor-block" id="scene-settings-section" style="display: none;">
+        <h3 class="processor-block-title">👁️ Scene</h3>
+
+        <!-- Превью-плитки слоёв (6 слоёв Scene) -->
+        <div class="layer-tiles" id="scene-layer-tiles">
+          <div class="layer-tile" data-layer-idx="0">
+            <canvas class="layer-tile-canvas" id="layer-preview-0" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="0" title="Solo">👁</button>
+            <span class="layer-tile-label">Gray</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="1">
+            <canvas class="layer-tile-canvas" id="layer-preview-1" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="1" title="Solo">👁</button>
+            <span class="layer-tile-label">Edges</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="2">
+            <canvas class="layer-tile-canvas" id="layer-preview-2" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="2" title="Solo">👁</button>
+            <span class="layer-tile-label">Lines</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="3">
+            <canvas class="layer-tile-canvas" id="layer-preview-3" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="3" title="Solo">👁</button>
+            <span class="layer-tile-label">Horizon</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="4">
+            <canvas class="layer-tile-canvas" id="layer-preview-4" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="4" title="Solo">👁</button>
+            <span class="layer-tile-label">Grid</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="5">
+            <canvas class="layer-tile-canvas" id="layer-preview-5" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="5" title="Solo">👁</button>
+            <span class="layer-tile-label">Walls</span>
           </div>
         </div>
-        
-        <div class="cv-debug-grid" id="cv-debug-grid" style="display: none;">
-          <div class="cv-debug-item">
-            <canvas id="cv-debug-gray" width="160" height="120"></canvas>
-            <span class="cv-debug-label">Grayscale</span>
+
+        <!-- Scene параметры (слайдеры) -->
+        <div class="processor-params">
+          <div class="setting-row">
+            <span class="setting-label">Canny Low</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-canny-low" class="param-slider" min="10" max="200" value="50" step="5">
+              <span class="param-slider-value" id="scene-canny-low-val">50</span>
+            </div>
           </div>
-          <div class="cv-debug-item">
-            <canvas id="cv-debug-edges" width="160" height="120"></canvas>
-            <span class="cv-debug-label">Canny Edges</span>
+          <div class="setting-row">
+            <span class="setting-label">Canny High</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-canny-high" class="param-slider" min="30" max="400" value="150" step="10">
+              <span class="param-slider-value" id="scene-canny-high-val">150</span>
+            </div>
           </div>
-          <div class="cv-debug-item">
-            <canvas id="cv-debug-lines" width="160" height="120"></canvas>
-            <span class="cv-debug-label">Hough Lines</span>
+          <div class="setting-row">
+            <span class="setting-label">Hough порог</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-hough-thresh" class="param-slider" min="10" max="200" value="50" step="5">
+              <span class="param-slider-value" id="scene-hough-thresh-val">50</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Hough мин. длина</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-hough-minlen" class="param-slider" min="10" max="200" value="50" step="5">
+              <span class="param-slider-value" id="scene-hough-minlen-val">50</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Hough макс. разрыв</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-hough-maxgap" class="param-slider" min="1" max="50" value="10" step="1">
+              <span class="param-slider-value" id="scene-hough-maxgap-val">10</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Макс. угол горизонта</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-horizon-angle" class="param-slider" min="10" max="80" value="45" step="5">
+              <span class="param-slider-value" id="scene-horizon-angle-val">45</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Допуск стен</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-wall-tol" class="param-slider" min="5" max="45" value="15" step="1">
+              <span class="param-slider-value" id="scene-wall-tol-val">15</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Сглаживание</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-smooth" class="param-slider" min="1" max="15" value="5" step="1">
+              <span class="param-slider-value" id="scene-smooth-val">5</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Интервал (мс)</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-interval" class="param-slider" min="50" max="500" value="100" step="10">
+              <span class="param-slider-value" id="scene-interval-val">100</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 🔴 Motion Detection настройки -->
-      <div class="motion-settings-section" id="motion-settings-section" style="display: none;">
-        <div class="setting-row">
-          <span class="setting-label">🔴 Пиксели</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn active" id="motion-pixels-toggle">ON</button>
+      <!-- ═══════════════════════════════════════════════════════
+           🔴 MOTION (MotionDetector) — настройки + превью слоёв
+           ═══════════════════════════════════════════════════════ -->
+      <div class="processor-block" id="motion-settings-section" style="display: none;">
+        <h3 class="processor-block-title">🔴 Motion</h3>
+
+        <!-- Превью-плитки слоёв (3 слоя Motion) -->
+        <div class="layer-tiles" id="motion-layer-tiles">
+          <div class="layer-tile" data-layer-idx="6">
+            <canvas class="layer-tile-canvas" id="layer-preview-6" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="6" title="Solo">👁</button>
+            <span class="layer-tile-label">Mask</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="7">
+            <canvas class="layer-tile-canvas" id="layer-preview-7" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="7" title="Solo">👁</button>
+            <span class="layer-tile-label">Contours</span>
+          </div>
+          <div class="layer-tile" data-layer-idx="8">
+            <canvas class="layer-tile-canvas" id="layer-preview-8" width="120" height="90"></canvas>
+            <button class="layer-eye-btn" data-layer-idx="8" title="Solo">👁</button>
+            <span class="layer-tile-label">BB</span>
           </div>
         </div>
-        <div class="setting-row">
-          <span class="setting-label">📦 BB рамки</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn active" id="motion-boxes-toggle">ON</button>
+
+        <!-- Десатурация + OSD -->
+        <div class="processor-params">
+          <div class="setting-row">
+            <span class="setting-label">🌫️ Десатурация</span>
+            <div class="toggle-switch">
+              <button class="toggle-btn" id="motion-desaturate-toggle">OFF</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">📊 OSD Motion</span>
+            <div class="toggle-switch">
+              <button class="toggle-btn active" id="motion-osd-toggle">ON</button>
+            </div>
           </div>
         </div>
-        <div class="setting-row">
-          <span class="setting-label">✏️ Контуры</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn" id="motion-contours-toggle">OFF</button>
+
+        <!-- Motion параметры (слайдеры) -->
+        <div class="processor-params">
+          <div class="setting-row">
+            <span class="setting-label">Порог</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="motion-threshold-slider" class="param-slider"
+                     min="5" max="100" value="25" step="1">
+              <span class="param-slider-value" id="motion-threshold-value">25</span>
+            </div>
           </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">🌫️ Десатурация</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn" id="motion-desaturate-toggle">OFF</button>
+          <div class="setting-row">
+            <span class="setting-label">Мин. область</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="motion-minarea-slider" class="param-slider"
+                     min="50" max="5000" value="500" step="50">
+              <span class="param-slider-value" id="motion-minarea-value">500</span>
+            </div>
           </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">📊 OSD Motion</span>
-          <div class="toggle-switch">
-            <button class="toggle-btn active" id="motion-osd-toggle">ON</button>
+          <div class="setting-row">
+            <span class="setting-label">Сглаживание</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="motion-blur-slider" class="param-slider"
+                     min="3" max="15" value="5" step="2">
+              <span class="param-slider-value" id="motion-blur-value">5</span>
+            </div>
           </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Порог</span>
-          <div class="motion-slider-ctrl">
-            <input type="range" id="motion-threshold-slider" class="motion-slider"
-                   min="5" max="100" value="25" step="1">
-            <span class="motion-slider-value" id="motion-threshold-value">25</span>
-          </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Мин. область</span>
-          <div class="motion-slider-ctrl">
-            <input type="range" id="motion-minarea-slider" class="motion-slider"
-                   min="50" max="5000" value="500" step="50">
-            <span class="motion-slider-value" id="motion-minarea-value">500</span>
-          </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Сглаживание</span>
-          <div class="motion-slider-ctrl">
-            <input type="range" id="motion-blur-slider" class="motion-slider"
-                   min="3" max="15" value="5" step="2">
-            <span class="motion-slider-value" id="motion-blur-value">5</span>
-          </div>
-        </div>
-        <div class="setting-row">
-          <span class="setting-label">Расширение</span>
-          <div class="motion-slider-ctrl">
-            <input type="range" id="motion-dilate-slider" class="motion-slider"
-                   min="0" max="5" value="2" step="1">
-            <span class="motion-slider-value" id="motion-dilate-value">2</span>
+          <div class="setting-row">
+            <span class="setting-label">Расширение</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="motion-dilate-slider" class="param-slider"
+                     min="0" max="5" value="2" step="1">
+              <span class="param-slider-value" id="motion-dilate-value">2</span>
+            </div>
           </div>
         </div>
       </div>
@@ -382,6 +477,7 @@
   <script src="/control.js"></script>
   <script src="/cv-processor.js"></script>
   <script src="/motion-detector.js"></script>
+  <script src="/compositor.js"></script>
   <script src="/script.js"></script>
   
   <!-- OpenCV.js (GitHub CDN via jsDelivr) -->

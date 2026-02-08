@@ -651,6 +651,7 @@ void webserverStartMain() {
     httpd_uri_t uriCtrlJs  = {"/control.js",      HTTP_GET, staticHandler, NULL};  // ControlService
     httpd_uri_t uriCvJs   = {"/cv-processor.js", HTTP_GET, staticHandler, NULL};  // CV Processor
     httpd_uri_t uriMotionJs = {"/motion-detector.js", HTTP_GET, staticHandler, NULL};  // Motion Detector
+    httpd_uri_t uriCompJs = {"/compositor.js",    HTTP_GET, staticHandler, NULL};  // Compositor
     httpd_uri_t uriJs     = {"/script.js",       HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriCss     = {"/style.css",   HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriLogo    = {"/logo.svg",    HTTP_GET, staticHandler, NULL};
@@ -660,6 +661,7 @@ void webserverStartMain() {
     httpd_register_uri_handler(mainHttpd, &uriCtrlJs);
     httpd_register_uri_handler(mainHttpd, &uriCvJs);
     httpd_register_uri_handler(mainHttpd, &uriMotionJs);
+    httpd_register_uri_handler(mainHttpd, &uriCompJs);
     httpd_register_uri_handler(mainHttpd, &uriJs);
     httpd_register_uri_handler(mainHttpd, &uriCss);
     httpd_register_uri_handler(mainHttpd, &uriLogo);

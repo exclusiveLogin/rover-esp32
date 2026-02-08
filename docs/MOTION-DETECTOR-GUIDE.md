@@ -66,41 +66,29 @@ detector.setMinArea(1000);           // мин. площадь контура
 
 ## Архитектура
 
-### Canvas слои
+### Композитор и слои
 
-Motion Detector и CV Processor работают на **независимых canvas-элементах**, что позволяет включать их одновременно:
+Motion Detector и Scene (CVProcessor) работают через **единый Compositor** — один RAF-цикл и один overlay canvas `#compositor-overlay`:
 
 ```
 ┌─────────────────────────────────────────────────┐
 │                  Video Container                 │
 ├─────────────────────────────────────────────────┤
-│                                                  │
-│  ┌──────────────────────────────────────┐ z:1   │
-│  │  <img> / <video>                     │       │
-│  │  (MJPEG stream / webcam)             │       │
-│  │  CSS filter: grayscale при десатурации│       │
-│  └──────────────────────────────────────┘       │
-│                                                  │
-│  ┌──────────────────────────────────────┐ z:3   │
-│  │  #motion-overlay <canvas>            │       │
-│  │  Красные пиксели + BB рамки          │       │
-│  └──────────────────────────────────────┘       │
-│                                                  │
-│  ┌──────────────────────────────────────┐ z:5   │
-│  │  #cv-overlay <canvas>                │       │
-│  │  Горизонт + сетка + стены            │       │
-│  └──────────────────────────────────────┘       │
-│                                                  │
-│  ┌──────────────────────────────────────┐ z:8   │
-│  │  OSD Overlay                          │       │
-│  └──────────────────────────────────────┘       │
-│                                                  │
-│  ┌──────────────────────────────────────┐ z:10  │
-│  │  Joysticks Overlay                    │       │
-│  └──────────────────────────────────────┘       │
-│                                                  │
+│  <img>/<video>               z:1  (видео)       │
+│  #compositor-overlay         z:5  (все слои)    │
+│  OSD Overlay                 z:8  (телеметрия)  │
+│  Joysticks Overlay           z:10 (управление)  │
 └─────────────────────────────────────────────────┘
 ```
+
+#### Слои Motion (MotionDetector) — 3 штуки:
+| localIndex | Имя | Описание |
+|------------|-----|----------|
+| 0 | Mask | Красная маска пикселей движения |
+| 1 | Contours | Контуры (силуэты) объектов |
+| 2 | BB | Bounding boxes (рамки) |
+
+Каждый слой рендерится в **offscreen canvas** и отдаётся через `getLayer(localIndex)`.
 
 ### Разделение ответственности
 
@@ -110,12 +98,12 @@ Motion Detector и CV Processor работают на **независимых c
 │                                                  │
 │  Владеет:                                        │
 │    • Детекция движения (absdiff, threshold...)  │
-│    • Рендер пикселей (showPixels)               │
-│    • Рендер BB рамок (showBoxes)                │
-│    • Canvas #motion-overlay                      │
+│    • tick(now) — вызывается Compositor'ом        │
+│    • getLayer(0..2) — offscreen canvases         │
 │    • Callback onMotion(result)                   │
 │                                                  │
 │  НЕ владеет:                                    │
+│    • RAF цикл (владеет Compositor)               │
 │    • Десатурация (CSS filter)                    │
 │    • OSD виджет                                  │
 │    • Кнопки UI                                   │
@@ -124,13 +112,15 @@ Motion Detector и CV Processor работают на **независимых c
                     │ onMotion({ motionPercent, regions, ... })
                     ▼
 ┌─────────────────────────────────────────────────┐
-│  script.js (оркестратор)                         │
+│  script.js (AppState + оркестратор)              │
 │                                                  │
 │  Владеет:                                        │
+│    • AppState.layers (SSOT) — toggle/solo        │
+│    • Compositor — единый RAF + overlay canvas    │
 │    • Десатурация: CSS filter на <img>/<video>    │
 │    • OSD виджет: обновление DOM                  │
-│    • Кнопка Motion: toggle, active state         │
-│    • Панель настроек: привязка тогглов/слайдеров│
+│    • Плитки-превью + глазик (toggle/solo)        │
+│    • Панель настроек: привязка слайдеров         │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -252,6 +242,14 @@ new MotionDetector(videoElement, overlayCanvas, options)
 | `stop()` | `void` | Остановка обработки |
 | `toggle()` | `boolean` | Переключение вкл/выкл |
 | `isRunning()` | `boolean` | Проверка состояния |
+
+### Compositor API (новое)
+
+| Метод | Возврат | Описание |
+|-------|---------|----------|
+| `tick(now)` | `void` | Вызывается Compositor'ом каждый RAF-кадр. Внутри throttle по `processInterval`. |
+| `getLayer(localIndex)` | `HTMLCanvasElement \| null` | Возвращает offscreen canvas для слоя 0..2 |
+| `MotionDetector.LAYER_COUNT` | `3` | Статическое свойство: число слоёв |
 
 ### Методы настройки слоёв
 

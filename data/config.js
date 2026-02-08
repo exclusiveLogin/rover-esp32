@@ -33,11 +33,11 @@ window.AppConfig = {
   // Для источников без CORS (IP Webcam, внешние камеры)
   // Работает только через dev-server!
   
-  USE_PROXY: false,  // true = проксировать через dev-server
+  USE_PROXY: true,  // true = проксировать через dev-server
   
   // Полный URL внешнего стрима (для proxy)
   // Пример: "http://192.168.1.50:8080/video"
-  EXTERNAL_STREAM_URL: null, //"http://192.168.31.196:8080",
+  EXTERNAL_STREAM_URL: "http://192.168.31.135:8080",
   
   // === API Endpoints ===
   
@@ -98,11 +98,11 @@ window.AppConfig = {
     processInterval: 100,     // мс между кадрами (100 = 10 FPS)
     
     // ─────────────────────────────────────────────────────────
-    // 👁️ Что отображать
+    // 👁️ Начальное состояние слоёв (читается initLayers в script.js)
     // ─────────────────────────────────────────────────────────
-    showHorizon: true,        // Линия горизонта
-    showGrid: true,           // Перспективная сетка пола
-    showWalls: true,          // Вертикальные линии (стены)
+    showHorizon: true,        // Слой 3: линия горизонта — enabled по умолч.
+    showGrid: true,           // Слой 4: перспективная сетка — enabled по умолч.
+    showWalls: true,          // Слой 5: вертикальные линии — enabled по умолч.
     
     // ─────────────────────────────────────────────────────────
     // 🔍 Canny edge detection
@@ -165,15 +165,29 @@ window.AppConfig = {
     blurSize: 5,              // Размер GaussianBlur ядра
     
     // ─────────────────────────────────────────────────────────
-    // 👁️ Слои визуализации
+    // 👁️ Начальное состояние слоёв (читается initLayers в script.js)
     // ─────────────────────────────────────────────────────────
-    showPixels: true,         // Красная маска пикселей
-    showBoxes: true,          // Зелёные BB рамки
-    showContours: false,      // Контуры (силуэты) движущихся объектов
-    showDesaturate: false,    // Десатурация видео (CSS filter, управляет script.js)
-    showOSD: true,            // OSD виджет (управляет script.js)
+    showPixels: true,         // Слой 0: красная маска пикселей — enabled по умолч.
+    showBoxes: true,          // Слой 2: зелёные BB рамки — enabled по умолч.
+    showContours: false,      // Слой 1: контуры — disabled по умолч.
+    showDesaturate: false,    // UI: десатурация видео (CSS filter)
+    showOSD: true,            // UI: OSD виджет
   },
   
+  // === Base Layer (видео) ===
+
+  BASE_LAYER: {
+    visible: true,            // Базовый слой (видео) виден по умолчанию
+  },
+
+  // === Layer UI (цвета рамок плиток-превью) ===
+
+  LAYERS: {
+    borderActive: '#4CAF50',           // Слой включён (зелёный)
+    borderSolo:   '#FFC107',           // Solo-режим (жёлтый)
+    borderOff:    'rgba(255,255,255,0.15)', // Слой выключен (тусклый)
+  },
+
   // === OSD (On-Screen Display) ===
   
   OSD: {

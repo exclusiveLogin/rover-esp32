@@ -959,31 +959,82 @@
   }
 
   // ============================================================
-  // 👁️ COMPUTER VISION (OpenCV.js)
+  // 🧩 APP STATE — единый стейт (SSOT)
   // ============================================================
 
-  let cvProcessor = null;
+  const AppState = {
+    processors: {
+      scene:  { enabled: false, instance: null, count: CVProcessor.LAYER_COUNT },
+      motion: { enabled: false, instance: null, count: MotionDetector.LAYER_COUNT }
+    },
+    layers: [],  // заполняется в initLayers()
+
+    // UI-флаги (инициализируются из AppConfig в initLayers)
+    baseLayer: true,          // базовый слой (видео) виден
+    motionDesaturate: false,
+    motionOsd: true,
+  };
+
+  let compositor = null;
   let cvReady = false;
 
-  /**
-   * Проверка и установка cvReady
-   * Вызывается при DOMContentLoaded (если cv уже в кэше)
-   * и по событию opencv-ready (если загрузился позже).
-   * Безопасно вызывать многократно — сработает один раз.
-   */
-  async function checkAndSetCVReady() {
-    if (cvReady) return;  // уже готов
+  /** Инициализация массива layers (один раз) */
+  function initLayers() {
+    const cfg = window.AppConfig;
+    const layers = [];
 
+    // Scene: 6 слоёв (localIndex 0..5)
+    const sceneLabels = ['Gray', 'Edges', 'Lines', 'Horizon', 'Grid', 'Walls'];
+    const sceneDefaults = [false, false, false,
+      cfg.CV.showHorizon !== false,
+      cfg.CV.showGrid !== false,
+      cfg.CV.showWalls !== false
+    ];
+    for (let i = 0; i < AppState.processors.scene.count; i++) {
+      layers.push({
+        processorId: 'scene',
+        localIndex: i,
+        enabled: sceneDefaults[i],
+        label: sceneLabels[i]
+      });
+    }
+
+    // Motion: 3 слоя (localIndex 0..2)
+    const motionLabels = ['Mask', 'Contours', 'BB'];
+    const motionDefaults = [
+      cfg.MOTION.showPixels !== false,
+      cfg.MOTION.showContours === true,
+      cfg.MOTION.showBoxes !== false
+    ];
+    for (let i = 0; i < AppState.processors.motion.count; i++) {
+      layers.push({
+        processorId: 'motion',
+        localIndex: i,
+        enabled: motionDefaults[i],
+        label: motionLabels[i]
+      });
+    }
+
+    AppState.layers = layers;
+
+    // UI-флаги из конфига
+    AppState.baseLayer = cfg.BASE_LAYER ? cfg.BASE_LAYER.visible !== false : true;
+    AppState.motionDesaturate = cfg.MOTION.showDesaturate === true;
+    AppState.motionOsd = cfg.MOTION.showOSD !== false;
+  }
+
+  // ============================================================
+  // 👁️ OpenCV.js — загрузка
+  // ============================================================
+
+  async function checkAndSetCVReady() {
+    if (cvReady) return;
     try {
       if (typeof cv === 'undefined') return;
-
-      // OpenCV.js 4.5+ WASM: cv — это Promise, нужно await
       if (cv instanceof Promise || typeof cv === 'function') {
         cv = await cv;
       }
-
       if (!cv.Mat) {
-        // WASM ещё инициализируется — ждём через polling
         const checkInterval = setInterval(() => {
           if (typeof cv !== 'undefined' && cv.Mat) {
             clearInterval(checkInterval);
@@ -992,301 +1043,239 @@
         }, 1000);
         return;
       }
-
       setCVReady();
     } catch (e) {
       console.warn('⏳ OpenCV.js not ready yet:', e.message);
     }
   }
 
-  /**
-   * Финальная установка cvReady = true + обновление UI
-   */
   function setCVReady() {
     if (cvReady) return;
     cvReady = true;
 
     const cvBtn = document.getElementById('cv-btn');
     const motionBtn = document.getElementById('motion-btn');
-    const debugSection = document.getElementById('cv-debug-section');
-
-    if (cvBtn) {
-      cvBtn.classList.remove('loading');
-    }
-    if (motionBtn) {
-      motionBtn.classList.remove('loading');
-    }
-    if (debugSection) {
-      debugSection.style.display = 'block';
-    }
+    if (cvBtn) cvBtn.classList.remove('loading');
+    if (motionBtn) motionBtn.classList.remove('loading');
 
     console.log('✅ OpenCV.js loaded');
   }
 
-  /**
-   * Инициализация CV
-   */
-  function initCV() {
-    const cvBtn = document.getElementById('cv-btn');
-    const cvOverlay = document.getElementById('cv-overlay');
-    
-    if (!cvBtn || !cvOverlay) {
-      console.warn('CV elements not found');
-      return;
-    }
+  // ============================================================
+  // 🖼️ BASE LAYER — видимость базового видеослоя
+  // ============================================================
 
-    // Кнопка CV
-    cvBtn.addEventListener('click', toggleCV);
-    
-    // Пометим кнопку как "загружается"
+  function initBaseLayer() {
+    const btn = document.getElementById('base-layer-btn');
+    if (!btn) return;
+
+    // Начальное состояние из AppState
+    applyBaseLayer();
+    btn.classList.toggle('active', AppState.baseLayer);
+
+    btn.addEventListener('click', toggleBaseLayer);
+    console.log('🖼️ Base layer initialized');
+  }
+
+  function toggleBaseLayer() {
+    AppState.baseLayer = !AppState.baseLayer;
+    applyBaseLayer();
+
+    const btn = document.getElementById('base-layer-btn');
+    if (btn) btn.classList.toggle('active', AppState.baseLayer);
+
+    console.log(`🖼️ Base layer: ${AppState.baseLayer ? 'visible' : 'hidden'}`);
+  }
+
+  /** Применить состояние baseLayer к DOM */
+  function applyBaseLayer() {
+    const container = document.querySelector('.video-container');
+    if (!container) return;
+    container.classList.toggle('base-hidden', !AppState.baseLayer);
+  }
+
+  // ============================================================
+  // 👁️ SCENE (CVProcessor) — init + toggle
+  // ============================================================
+
+  function initScene() {
+    const cvBtn = document.getElementById('cv-btn');
+    if (!cvBtn) return;
+
+    cvBtn.addEventListener('click', toggleScene);
     cvBtn.classList.add('loading');
     cvBtn.title = 'OpenCV.js загружается...';
 
-    // Проверяем OpenCV: может быть уже загружен из кэша
-    // (onload события могло прийти ДО DOMContentLoaded)
     checkAndSetCVReady();
-
-    // Слушаем событие на случай если ещё не загружен
     window.addEventListener('opencv-ready', () => checkAndSetCVReady());
-    
-    // Инициализация CV Debug panel
-    initCVDebug();
 
-    console.log('👁️ CV module initialized (waiting for OpenCV.js)');
+    // Привязка слайдеров Scene
+    initSceneSliders();
+
+    console.log('👁️ Scene module initialized (waiting for OpenCV.js)');
   }
-  
-  /**
-   * Инициализация CV Debug панели
-   */
-  function initCVDebug() {
-    const debugToggle = document.getElementById('cv-debug-toggle');
-    const debugGrid = document.getElementById('cv-debug-grid');
-    
-    if (!debugToggle || !debugGrid) return;
-    
-    debugToggle.addEventListener('click', () => {
-      const isActive = debugToggle.dataset.active === 'true';
-      const newState = !isActive;
-      
-      // Обновляем UI
-      debugToggle.dataset.active = newState;
-      debugToggle.textContent = newState ? 'ON' : 'OFF';
-      debugGrid.style.display = newState ? 'grid' : 'none';
-      
-      // Применяем к CVProcessor
-      if (cvProcessor) {
-        cvProcessor.setDebug(newState);
-        
-        // При первом включении устанавливаем debug canvases
-        if (newState && !cvProcessor._debugCanvases.gray) {
-          cvProcessor.setDebugCanvases({
-            gray: document.getElementById('cv-debug-gray'),
-            edges: document.getElementById('cv-debug-edges'),
-            lines: document.getElementById('cv-debug-lines')
-          });
-        }
+
+  function initSceneSliders() {
+    const sliders = [
+      { id: 'scene-canny-low',     valId: 'scene-canny-low-val',     key: 'cannyLow' },
+      { id: 'scene-canny-high',    valId: 'scene-canny-high-val',    key: 'cannyHigh' },
+      { id: 'scene-hough-thresh',  valId: 'scene-hough-thresh-val',  key: 'houghThreshold' },
+      { id: 'scene-hough-minlen',  valId: 'scene-hough-minlen-val',  key: 'houghMinLength' },
+      { id: 'scene-hough-maxgap',  valId: 'scene-hough-maxgap-val',  key: 'houghMaxGap' },
+      { id: 'scene-horizon-angle', valId: 'scene-horizon-angle-val', key: 'horizonMaxAngle' },
+      { id: 'scene-wall-tol',      valId: 'scene-wall-tol-val',      key: 'wallAngleTolerance' },
+      { id: 'scene-smooth',        valId: 'scene-smooth-val',        key: 'smoothFrames' },
+      { id: 'scene-interval',      valId: 'scene-interval-val',      key: 'processInterval' },
+    ];
+
+    for (const s of sliders) {
+      const slider = document.getElementById(s.id);
+      const valEl = document.getElementById(s.valId);
+      if (!slider) continue;
+
+      // Установить начальные значения из конфига
+      const cfgVal = window.AppConfig.CV[s.key];
+      if (cfgVal !== undefined) {
+        slider.value = cfgVal;
+        if (valEl) valEl.textContent = cfgVal;
       }
-      
-      console.log(`👁️ CV Debug: ${newState ? 'ON' : 'OFF'}`);
-    });
+
+      slider.addEventListener('input', () => {
+        const val = parseInt(slider.value);
+        if (valEl) valEl.textContent = val;
+        const proc = AppState.processors.scene.instance;
+        if (proc) proc.updateConfig({ [s.key]: val });
+      });
+    }
   }
 
-  /**
-   * Включение/выключение CV
-   */
-  function toggleCV() {
+  function toggleScene() {
     const cvBtn = document.getElementById('cv-btn');
-    const cvOverlay = document.getElementById('cv-overlay');
-    
+    const settingsSection = document.getElementById('scene-settings-section');
+
     if (!cvReady) {
       console.warn('OpenCV.js not ready yet');
-      cvBtn.title = 'OpenCV.js ещё загружается...';
+      if (cvBtn) cvBtn.title = 'OpenCV.js ещё загружается...';
       return;
     }
 
-    // Получаем текущий активный видео-элемент
+    const proc = AppState.processors.scene;
     const activeVideo = getActiveVideoElement();
 
     // Пересоздаём процессор если источник изменился
-    if (cvProcessor && cvProcessor.video !== activeVideo) {
-      cvProcessor.stop();
-      cvProcessor = null;
+    if (proc.instance && proc.instance.video !== activeVideo) {
+      proc.instance.stop();
+      proc.instance = null;
     }
 
-    if (!cvProcessor) {
-      // Создаём процессор с текущим источником
-      cvProcessor = new CVProcessor(activeVideo, cvOverlay, {
+    if (!proc.instance) {
+      proc.instance = new CVProcessor(activeVideo, {
         ...window.AppConfig.CV,
-        onProcess: (result) => {
-          // Можно добавить обработку результатов
-        },
-        onError: (err) => {
-          console.error('CV error:', err);
-        }
+        onError: (err) => console.error('Scene error:', err)
       });
-      
-      // Применяем текущее состояние debug
-      const debugToggle = document.getElementById('cv-debug-toggle');
-      if (debugToggle && debugToggle.dataset.active === 'true') {
-        cvProcessor.setDebug(true);
-        cvProcessor.setDebugCanvases({
-          gray: document.getElementById('cv-debug-gray'),
-          edges: document.getElementById('cv-debug-edges'),
-          lines: document.getElementById('cv-debug-lines')
-        });
-      }
     }
 
     // Toggle
-    const isRunning = cvProcessor.toggle();
-    cvBtn.classList.toggle('active', isRunning);
-    cvBtn.title = isRunning ? 'CV включён' : 'CV выключён';
-    
-    console.log(`👁️ CV ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
+    if (proc.enabled) {
+      proc.instance.stop();
+      proc.enabled = false;
+    } else {
+      proc.instance.start();
+      proc.enabled = true;
+    }
+
+    if (cvBtn) {
+      cvBtn.classList.toggle('active', proc.enabled);
+      cvBtn.title = proc.enabled ? 'Scene включён' : 'Scene выключён';
+    }
+    if (settingsSection) {
+      settingsSection.style.display = proc.enabled ? 'block' : 'none';
+    }
+
+    // Запуск/остановка композитора
+    ensureCompositor();
+
+    console.log(`👁️ Scene ${proc.enabled ? 'started' : 'stopped'}`);
   }
 
   // ============================================================
-  // 🔴 MOTION DETECTION (OpenCV.js)
+  // 🔴 MOTION (MotionDetector) — init + toggle
   // ============================================================
 
-  let motionDetector = null;
-  let motionOsdEnabled = true;
-  let motionDesaturateEnabled = false;
-
-  /**
-   * Инициализация Motion Detection
-   */
   function initMotion() {
     const motionBtn = document.getElementById('motion-btn');
     if (!motionBtn) return;
 
-    // Кнопка Motion
     motionBtn.addEventListener('click', toggleMotion);
 
-    // Пометим кнопку как "загружается" (ждёт OpenCV)
-    // setCVReady() снимет loading когда OpenCV будет готов
     if (!cvReady) {
       motionBtn.classList.add('loading');
       motionBtn.title = 'OpenCV.js загружается...';
     }
 
-    // Настройки Motion Detection
     initMotionSettings();
-
     console.log('🔴 Motion module initialized');
   }
 
-  /**
-   * Инициализация настроек Motion Detection
-   */
   function initMotionSettings() {
-    // Тоггл: Пиксели
-    const pixelsToggle = document.getElementById('motion-pixels-toggle');
-    if (pixelsToggle) {
-      pixelsToggle.addEventListener('click', () => {
-        const isActive = pixelsToggle.classList.contains('active');
-        pixelsToggle.classList.toggle('active', !isActive);
-        pixelsToggle.textContent = isActive ? 'OFF' : 'ON';
-        if (motionDetector) motionDetector.setLayer('pixels', !isActive);
-      });
-    }
-
-    // Тоггл: BB рамки
-    const boxesToggle = document.getElementById('motion-boxes-toggle');
-    if (boxesToggle) {
-      boxesToggle.addEventListener('click', () => {
-        const isActive = boxesToggle.classList.contains('active');
-        boxesToggle.classList.toggle('active', !isActive);
-        boxesToggle.textContent = isActive ? 'OFF' : 'ON';
-        if (motionDetector) motionDetector.setLayer('boxes', !isActive);
-      });
-    }
-
-    // Тоггл: Контуры (силуэты)
-    const contoursToggle = document.getElementById('motion-contours-toggle');
-    if (contoursToggle) {
-      contoursToggle.addEventListener('click', () => {
-        const isActive = contoursToggle.classList.contains('active');
-        contoursToggle.classList.toggle('active', !isActive);
-        contoursToggle.textContent = isActive ? 'OFF' : 'ON';
-        if (motionDetector) motionDetector.setLayer('contours', !isActive);
-      });
-    }
-
-    // Тоггл: Десатурация (CSS filter на видео)
+    // Десатурация
     const desatToggle = document.getElementById('motion-desaturate-toggle');
     if (desatToggle) {
+      // Начальное состояние из AppState (SSOT)
+      desatToggle.classList.toggle('active', AppState.motionDesaturate);
+      desatToggle.textContent = AppState.motionDesaturate ? 'ON' : 'OFF';
+
       desatToggle.addEventListener('click', () => {
-        motionDesaturateEnabled = !motionDesaturateEnabled;
-        desatToggle.classList.toggle('active', motionDesaturateEnabled);
-        desatToggle.textContent = motionDesaturateEnabled ? 'ON' : 'OFF';
-        applyDesaturation(motionDesaturateEnabled);
+        AppState.motionDesaturate = !AppState.motionDesaturate;
+        desatToggle.classList.toggle('active', AppState.motionDesaturate);
+        desatToggle.textContent = AppState.motionDesaturate ? 'ON' : 'OFF';
+        applyDesaturation(AppState.motionDesaturate);
       });
     }
 
-    // Тоггл: OSD Motion виджет
+    // OSD Motion виджет
     const osdToggle = document.getElementById('motion-osd-toggle');
     if (osdToggle) {
+      // Начальное состояние из AppState (SSOT)
+      osdToggle.classList.toggle('active', AppState.motionOsd);
+      osdToggle.textContent = AppState.motionOsd ? 'ON' : 'OFF';
+
       osdToggle.addEventListener('click', () => {
-        motionOsdEnabled = !motionOsdEnabled;
-        osdToggle.classList.toggle('active', motionOsdEnabled);
-        osdToggle.textContent = motionOsdEnabled ? 'ON' : 'OFF';
+        AppState.motionOsd = !AppState.motionOsd;
+        osdToggle.classList.toggle('active', AppState.motionOsd);
+        osdToggle.textContent = AppState.motionOsd ? 'ON' : 'OFF';
         const widget = document.getElementById('osd-motion-widget');
-        if (widget) widget.style.display = motionOsdEnabled && motionDetector?.isRunning() ? '' : 'none';
+        const proc = AppState.processors.motion;
+        if (widget) widget.style.display = AppState.motionOsd && proc.enabled ? '' : 'none';
       });
     }
 
-    // Слайдер: Порог
-    const threshSlider = document.getElementById('motion-threshold-slider');
-    const threshValue = document.getElementById('motion-threshold-value');
-    if (threshSlider) {
-      threshSlider.addEventListener('input', () => {
-        const val = parseInt(threshSlider.value);
-        if (threshValue) threshValue.textContent = val;
-        if (motionDetector) motionDetector.setThreshold(val);
-      });
-    }
+    // Слайдеры Motion
+    const motionSliders = [
+      { id: 'motion-threshold-slider', valId: 'motion-threshold-value', method: 'setThreshold' },
+      { id: 'motion-minarea-slider',   valId: 'motion-minarea-value',   method: 'setMinArea' },
+      { id: 'motion-blur-slider',      valId: 'motion-blur-value',      method: 'setBlurSize' },
+      { id: 'motion-dilate-slider',    valId: 'motion-dilate-value',    method: 'setDilateIterations' },
+    ];
 
-    // Слайдер: Мин. область
-    const areaSlider = document.getElementById('motion-minarea-slider');
-    const areaValue = document.getElementById('motion-minarea-value');
-    if (areaSlider) {
-      areaSlider.addEventListener('input', () => {
-        const val = parseInt(areaSlider.value);
-        if (areaValue) areaValue.textContent = val;
-        if (motionDetector) motionDetector.setMinArea(val);
-      });
-    }
+    for (const s of motionSliders) {
+      const slider = document.getElementById(s.id);
+      const valEl = document.getElementById(s.valId);
+      if (!slider) continue;
 
-    // Слайдер: Сглаживание (blurSize)
-    const blurSlider = document.getElementById('motion-blur-slider');
-    const blurValue = document.getElementById('motion-blur-value');
-    if (blurSlider) {
-      blurSlider.addEventListener('input', () => {
-        const val = parseInt(blurSlider.value);
-        if (blurValue) blurValue.textContent = val;
-        if (motionDetector) motionDetector.setBlurSize(val);
-      });
-    }
-
-    // Слайдер: Расширение (dilateIterations)
-    const dilateSlider = document.getElementById('motion-dilate-slider');
-    const dilateValue = document.getElementById('motion-dilate-value');
-    if (dilateSlider) {
-      dilateSlider.addEventListener('input', () => {
-        const val = parseInt(dilateSlider.value);
-        if (dilateValue) dilateValue.textContent = val;
-        if (motionDetector) motionDetector.setDilateIterations(val);
+      slider.addEventListener('input', () => {
+        const val = parseInt(slider.value);
+        if (valEl) valEl.textContent = val;
+        const proc = AppState.processors.motion.instance;
+        if (proc && typeof proc[s.method] === 'function') {
+          proc[s.method](val);
+        }
       });
     }
   }
 
-  /**
-   * Включение/выключение Motion Detection
-   */
   function toggleMotion() {
     const motionBtn = document.getElementById('motion-btn');
-    const motionOverlay = document.getElementById('motion-overlay');
     const settingsSection = document.getElementById('motion-settings-section');
 
     if (!cvReady) {
@@ -1295,75 +1284,158 @@
       return;
     }
 
-    // Получаем текущий активный видео-элемент
+    const proc = AppState.processors.motion;
     const activeVideo = getActiveVideoElement();
 
-    // Пересоздаём детектор если источник изменился
-    if (motionDetector && motionDetector.video !== activeVideo) {
-      motionDetector.stop();
-      motionDetector = null;
+    // Пересоздаём процессор если источник изменился
+    if (proc.instance && proc.instance.video !== activeVideo) {
+      proc.instance.stop();
+      proc.instance = null;
     }
 
-    if (!motionDetector) {
-      motionDetector = new MotionDetector(activeVideo, motionOverlay, {
+    if (!proc.instance) {
+      proc.instance = new MotionDetector(activeVideo, {
         ...window.AppConfig.MOTION,
-        onMotion: (result) => {
-          updateMotionOSD(result);
-        },
-        onError: (err) => {
-          console.error('Motion error:', err);
-        }
+        onMotion: (result) => updateMotionOSD(result),
+        onError: (err) => console.error('Motion error:', err)
       });
     }
 
     // Toggle
-    const isRunning = motionDetector.toggle();
-    if (motionBtn) {
-      motionBtn.classList.toggle('active', isRunning);
-      motionBtn.title = isRunning ? 'Motion Detection включён' : 'Motion Detection выключён';
+    if (proc.enabled) {
+      proc.instance.stop();
+      proc.enabled = false;
+    } else {
+      proc.instance.start();
+      proc.enabled = true;
     }
 
-    // Показ/скрытие настроек
+    if (motionBtn) {
+      motionBtn.classList.toggle('active', proc.enabled);
+      motionBtn.title = proc.enabled ? 'Motion включён' : 'Motion выключён';
+    }
     if (settingsSection) {
-      settingsSection.style.display = isRunning ? 'block' : 'none';
+      settingsSection.style.display = proc.enabled ? 'block' : 'none';
     }
 
     // OSD виджет
     const osdWidget = document.getElementById('osd-motion-widget');
     if (osdWidget) {
-      osdWidget.style.display = (isRunning && motionOsdEnabled) ? '' : 'none';
+      osdWidget.style.display = (proc.enabled && AppState.motionOsd) ? '' : 'none';
     }
 
-    // Десатурация: снимаем при выключении
-    if (!isRunning && motionDesaturateEnabled) {
+    // Десатурация
+    if (!proc.enabled && AppState.motionDesaturate) {
       applyDesaturation(false);
-    } else if (isRunning && motionDesaturateEnabled) {
+    } else if (proc.enabled && AppState.motionDesaturate) {
       applyDesaturation(true);
     }
 
-    console.log(`🔴 Motion ${isRunning ? 'started' : 'stopped'} (source: ${isWebcamActive ? 'webcam' : 'stream'})`);
+    ensureCompositor();
+
+    console.log(`🔴 Motion ${proc.enabled ? 'started' : 'stopped'}`);
   }
 
-  /**
-   * Применить/убрать десатурацию на видео-элементе (CSS filter)
-   */
   function applyDesaturation(enabled) {
     const filter = enabled ? 'grayscale(0.8) brightness(1.2)' : '';
     videoFeed.style.filter = filter;
     videoLocal.style.filter = filter;
   }
 
-  /**
-   * Обновление OSD виджета Motion
-   */
   function updateMotionOSD(result) {
-    if (!motionOsdEnabled) return;
-
+    if (!AppState.motionOsd) return;
     const percentEl = document.getElementById('osd-motion-percent');
     const regionsEl = document.getElementById('osd-motion-regions');
-
     if (percentEl) percentEl.textContent = result.motionPercent.toFixed(1) + '%';
     if (regionsEl) regionsEl.textContent = result.regionCount;
+  }
+
+  // ============================================================
+  // 🎬 COMPOSITOR — управление
+  // ============================================================
+
+  /** Запуск/остановка композитора в зависимости от включённых процессоров */
+  function ensureCompositor() {
+    const anyEnabled = Object.values(AppState.processors).some(p => p.enabled);
+
+    if (anyEnabled && !compositor) {
+      const canvas = document.getElementById('compositor-overlay');
+      if (!canvas) return;
+      compositor = new Compositor(canvas, AppState);
+      compositor.start();
+    } else if (anyEnabled && compositor && !compositor.isRunning()) {
+      compositor.start();
+    } else if (!anyEnabled && compositor) {
+      compositor.stop();
+    }
+
+    // Обновляем tile UI при каждом изменении
+    updateLayerTileUI();
+  }
+
+  // ============================================================
+  // 🎛️ LAYER TILES — клик = toggle, глазик = solo
+  // ============================================================
+
+  function initLayerTiles() {
+    // Клик по плитке = toggle enabled
+    document.querySelectorAll('.layer-tile').forEach(tile => {
+      tile.addEventListener('click', (e) => {
+        // Не реагировать на клик по глазику
+        if (e.target.closest('.layer-eye-btn')) return;
+
+        const idx = parseInt(tile.dataset.layerIdx);
+        if (isNaN(idx) || idx >= AppState.layers.length) return;
+
+        AppState.layers[idx].enabled = !AppState.layers[idx].enabled;
+        updateLayerTileUI();
+      });
+    });
+
+    // Клик по глазику = solo
+    document.querySelectorAll('.layer-eye-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.layerIdx);
+        if (isNaN(idx) || idx >= AppState.layers.length) return;
+
+        // Solo: всем false, этому true
+        AppState.layers.forEach(l => l.enabled = false);
+        AppState.layers[idx].enabled = true;
+        updateLayerTileUI();
+      });
+    });
+  }
+
+  /** Обновление визуального состояния плиток (active/solo/off) */
+  function updateLayerTileUI() {
+    const layers = AppState.layers;
+    const enabledCount = layers.filter(l => l.enabled).length;
+    const isSolo = enabledCount === 1;
+
+    const cfg = window.AppConfig.LAYERS || {};
+    const colorActive = cfg.borderActive || '#4CAF50';
+    const colorSolo   = cfg.borderSolo   || '#FFC107';
+    const colorOff    = cfg.borderOff    || 'rgba(255,255,255,0.15)';
+
+    for (let i = 0; i < layers.length; i++) {
+      const tile = document.querySelector(`.layer-tile[data-layer-idx="${i}"]`);
+      if (!tile) continue;
+
+      const entry = layers[i];
+      tile.classList.remove('active', 'solo', 'off');
+
+      if (entry.enabled && isSolo) {
+        tile.classList.add('solo');
+        tile.style.borderColor = colorSolo;
+      } else if (entry.enabled) {
+        tile.classList.add('active');
+        tile.style.borderColor = colorActive;
+      } else {
+        tile.classList.add('off');
+        tile.style.borderColor = colorOff;
+      }
+    }
   }
 
   // ============================================================
@@ -1563,8 +1635,12 @@
     initDriveControls();
     initJoysticks();
     initSettings();
-    initCV();
-    initMotion();
+    initLayers();         // SSOT: формируем массив layers + UI-флаги
+    initBaseLayer();      // Base layer (видео) toggle
+    initScene();          // Scene (бывший CV)
+    initMotion();         // Motion
+    initLayerTiles();     // Плитки слоёв (toggle + solo)
+    updateLayerTileUI();  // Начальное состояние плиток
     initOSD();
   });
 })();

@@ -151,18 +151,8 @@ main {
   font-size: 0.9rem;
 }
 
-/* === Motion Overlay (Motion Detection) === */
-.motion-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 3;
-}
-
-/* === CV Overlay (OpenCV.js) === */
-.cv-overlay {
+/* === Compositor Overlay (единый canvas для всех слоёв) === */
+.compositor-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -382,6 +372,28 @@ main {
   border-color: var(--warning);
 }
 
+.btn.base-layer {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-tertiary);
+}
+
+.btn.base-layer:hover {
+  border-color: var(--accent);
+}
+
+.btn.base-layer.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Скрытие базового слоя (видео) — чёрный фон виден */
+.video-container.base-hidden #video-feed,
+.video-container.base-hidden #video-local {
+  opacity: 0 !important;
+}
+
 .btn.cv {
   background: var(--bg-secondary);
   color: var(--text-secondary);
@@ -424,37 +436,7 @@ main {
   cursor: wait;
 }
 
-/* === Motion Settings Section === */
-.motion-settings-section {
-  padding: 12px 16px;
-  border-top: 1px solid var(--bg-tertiary);
-}
-
-.motion-settings-section .setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-
-.motion-slider-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.motion-slider {
-  width: 120px;
-  accent-color: var(--error);
-}
-
-.motion-slider-value {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  min-width: 32px;
-  text-align: right;
-  font-family: monospace;
-}
+/* Motion slider compatibility (now uses .param-slider-ctrl / .param-slider) */
 
 /* === OSD Motion Widget === */
 .osd-motion {
@@ -722,66 +704,149 @@ main {
   color: #4caf50;
 }
 
-/* === CV Debug Section === */
-.cv-debug-section {
+/* ============================================================
+   🧩 PROCESSOR BLOCKS (Scene / Motion)
+   ============================================================ */
+
+.processor-block {
   margin-top: 16px;
-  padding-top: 16px;
+  padding: 12px 16px;
   border-top: 1px solid var(--bg-tertiary);
 }
 
-.cv-debug-grid {
+.processor-block-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.processor-params .setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.param-slider-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.param-slider {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.param-slider-value {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  min-width: 32px;
+  text-align: right;
+  font-family: monospace;
+}
+
+/* ============================================================
+   🎛️ LAYER TILES (превью-плитки + глазик)
+   ============================================================ */
+
+.layer-tiles {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-top: 12px;
+  margin-bottom: 12px;
 }
 
-.cv-debug-item {
+.layer-tile {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+  position: relative;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  transition: border-color 0.15s, opacity 0.15s;
 }
 
-.cv-debug-item canvas {
+.layer-tile.active {
+  border-color: var(--success);
+}
+
+.layer-tile.solo {
+  border-color: var(--warning);
+}
+
+.layer-tile.off {
+  opacity: 0.5;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.layer-tile-canvas {
   width: 100%;
-  max-width: 160px;
+  max-width: 120px;
   height: auto;
   aspect-ratio: 4/3;
   background: var(--bg-primary);
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: none;
 }
 
-.cv-debug-label {
-  font-size: 0.65rem;
+.layer-eye-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  z-index: 1;
+}
+
+.layer-eye-btn:hover {
+  background: rgba(255, 193, 7, 0.4);
+  color: #fff;
+}
+
+.layer-tile-label {
+  font-size: 0.6rem;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-#cv-debug-toggle {
-  min-width: 50px;
-}
-
-#cv-debug-toggle[data-active="true"] {
-  background: var(--success);
-  color: white;
-}
-
-/* Мобильная адаптация для CV debug */
+/* Мобильная адаптация для layer tiles */
 @media (max-width: 480px) {
-  .cv-debug-grid {
-    grid-template-columns: repeat(3, 1fr);
+  .layer-tiles {
     gap: 4px;
   }
-  
-  .cv-debug-item canvas {
-    max-width: 100px;
+
+  .layer-tile {
+    padding: 2px;
   }
-  
-  .cv-debug-label {
-    font-size: 0.55rem;
+
+  .layer-tile-canvas {
+    max-width: 90px;
+  }
+
+  .layer-tile-label {
+    font-size: 0.5rem;
+  }
+
+  .layer-eye-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 0.6rem;
   }
 }
 
