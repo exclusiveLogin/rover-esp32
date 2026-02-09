@@ -49,6 +49,17 @@ class MotionDetector {
     dilateIterations: 2,    // итераций dilate (расширение)
     blurSize: 5,            // размер GaussianBlur ядра
 
+    // POI Tracking
+    poiMinFrames: 5,        // мин. кадров устойчивости
+    poiMatchRadius: 30,     // радиус сопоставления центров (px)
+    poiPersistence: 5,      // кадров удержания после пропадания
+    poiMinSize: 500,        // мин. площадь BB (px²)
+    poiMaxSize: 50000,      // макс. площадь BB (px²)
+    poiMaxZones: 3,         // макс. зон POI
+    poiNoiseThreshold: 30,  // порог motionPercent для режима "шум" (%)
+    poiEmaPosition: 70,     // EMA коэфф. позиции (% старого, 50..90)
+    poiEmaSize: 80,         // EMA коэфф. размера (% старого, 50..95)
+
     // Цвета рендера слоёв
     colors: {
       boxes: '#00FF00',                    // зелёный — BB рамки
@@ -94,14 +105,20 @@ class MotionDetector {
     this._motionPercent = 0;     // процент пикселей с движением
     this._centerOfMass = null;   // центр масс движения
 
+    // Стейт POI tracking
+    this._poiTrackers = [];      // массив трекеров { cx, cy, width, height, frameCount, age, id }
+    this._poiResults = [];       // отфильтрованные POI для рендера
+    this._poiNoiseMode = false;  // режим "слишком много шума"
+    this._nextPoiId = 1;         // счётчик ID для новых трекеров
+
     // Callbacks
     this.onMotion = options.onMotion || null;
     this.onError = options.onError || null;
 
     // ── Offscreen canvases для getLayer() (композитор) ──────
-    // 3 слоя: 0=Mask(Pixels), 1=Contours, 2=BB(BoundingBoxes)
+    // 4 слоя: 0=Mask(Pixels), 1=Contours, 2=BB(BoundingBoxes), 3=POI
     this._layerCanvases = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const c = document.createElement('canvas');
       c.width = this.config.processWidth;
       c.height = this.config.processHeight;
@@ -232,6 +249,53 @@ class MotionDetector {
     this.config.dilateIterations = Math.max(0, Math.min(5, value));
   }
 
+  // ── POI Tracking Parameters ──────────────────────────────
+
+  /** Установить мин. кадров для POI квалификации */
+  setPoiMinFrames(value) {
+    this.config.poiMinFrames = Math.max(2, Math.min(30, value));
+  }
+
+  /** Установить радиус сопоставления (px) */
+  setPoiMatchRadius(value) {
+    this.config.poiMatchRadius = Math.max(5, Math.min(100, value));
+  }
+
+  /** Установить кадров persistence (удержание после пропадания) */
+  setPoiPersistence(value) {
+    this.config.poiPersistence = Math.max(0, Math.min(30, value));
+  }
+
+  /** Установить мин. площадь BB для POI (px²) */
+  setPoiMinSize(value) {
+    this.config.poiMinSize = Math.max(100, Math.min(10000, value));
+  }
+
+  /** Установить макс. площадь BB для POI (px²) */
+  setPoiMaxSize(value) {
+    this.config.poiMaxSize = Math.max(5000, Math.min(100000, value));
+  }
+
+  /** Установить макс. кол-во зон POI */
+  setPoiMaxZones(value) {
+    this.config.poiMaxZones = Math.max(1, Math.min(3, value));
+  }
+
+  /** Установить порог шума (motionPercent %) */
+  setPoiNoiseThreshold(value) {
+    this.config.poiNoiseThreshold = Math.max(10, Math.min(80, value));
+  }
+
+  /** Установить EMA коэфф. для позиции (%) */
+  setPoiEmaPosition(value) {
+    this.config.poiEmaPosition = Math.max(50, Math.min(90, value));
+  }
+
+  /** Установить EMA коэфф. для размера (%) */
+  setPoiEmaSize(value) {
+    this.config.poiEmaSize = Math.max(50, Math.min(95, value));
+  }
+
   // ==========================================================
   // 🎬 Compositor API — tick() + getLayer()
   // ==========================================================
@@ -262,7 +326,7 @@ class MotionDetector {
   }
 
   /** Число слоёв этого процессора */
-  static get LAYER_COUNT() { return 3; }
+  static get LAYER_COUNT() { return 4; }
 
   // ==========================================================
   // 🔄 Приватный пайплайн — Обработка кадра
@@ -290,25 +354,31 @@ class MotionDetector {
       // 4. Поиск регионов (всегда — нужны для getLayer и превью)
       this._findRegions();
 
-      // 5. Рендер в offscreen layer canvases
+      // 5. POI Tracking — корреляция и накопление
+      this._updatePoiTrackers();
+
+      // 6. Рендер в offscreen layer canvases
       this._renderLayerCanvases();
 
-      // 6. Callback с метаданными
+      // 7. Callback с метаданными
       if (this.onMotion) {
         this.onMotion({
           motionPercent: this._motionPercent,
           regionCount: this._regions.length,
           regions: this._regions,
           centerOfMass: this._centerOfMass,
+          poiCount: this._poiResults.length,
+          pois: this._poiResults,
+          poiNoiseMode: this._poiNoiseMode,
           timestamp: Date.now()
         });
       }
 
-      // 7. Обновление стейта: текущий → предыдущий
+      // 8. Обновление стейта: текущий → предыдущий
       if (this._prevGray) this._prevGray.delete();
       this._prevGray = this._currentGray.clone();
 
-      // 8. Очистка текущего кадра и маски
+      // 9. Очистка текущего кадра и маски
       if (this._currentGray) {
         this._currentGray.delete();
         this._currentGray = null;
@@ -595,6 +665,131 @@ class MotionDetector {
     }
   }
 
+  /**
+   * POI Tracking — корреляция регионов с трекерами, накопление достоверности
+   * 
+   * Алгоритм SORT-подобного трекинга:
+   *   1. Проверка шумового режима (motionPercent > порог)
+   *   2. Nearest-center matching между _regions и существующими трекерами
+   *   3. EMA-сглаживание для matched (коэффициенты настраиваются: poiEmaPosition, poiEmaSize)
+   *   4. Aging неиспользованных трекеров
+   *   5. Удаление по persistence (age > poiPersistence)
+   *   6. Фильтрация: frameCount >= poiMinFrames, area в [poiMinSize, poiMaxSize]
+   *   7. Ранжирование по frameCount (устойчивости), топ-N (poiMaxZones)
+   * 
+   * @private
+   * @reads {Array} this._regions - текущие BB регионы из _findRegions()
+   * @reads {number} this._motionPercent - процент движущихся пикселей
+   * @writes {Array} this._poiTrackers - массив трекеров { cx, cy, width, height, frameCount, age, id }
+   * @writes {Array} this._poiResults - отфильтрованные топ-N POI для рендера
+   * @writes {boolean} this._poiNoiseMode - флаг режима "шум"
+   */
+  _updatePoiTrackers() {
+    const { config } = this;
+
+    // ── Шаг 1: Проверка шумового режима ────────────────────────
+    //
+    // Если motionPercent слишком велик → вся сцена движется
+    // (тряска камеры, смена сцены, много объектов).
+    // В этом режиме отключаем рендер POI зон.
+    //
+    this._poiNoiseMode = this._motionPercent > config.poiNoiseThreshold;
+
+    // ── Шаг 2: Матчинг текущих регионов с существующими трекерами ──
+    //
+    // Для каждого region из _regions[] ищем ближайший tracker,
+    // где расстояние между центрами < poiMatchRadius.
+    //
+    const usedTrackers = new Set();
+
+    for (const region of this._regions) {
+      const regionCx = region.x + region.width / 2;
+      const regionCy = region.y + region.height / 2;
+
+      // Поиск ближайшего трекера
+      let nearestTracker = null;
+      let minDist = config.poiMatchRadius;
+
+      for (const tracker of this._poiTrackers) {
+        const dx = tracker.cx - regionCx;
+        const dy = tracker.cy - regionCy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < minDist) {
+          minDist = dist;
+          nearestTracker = tracker;
+        }
+      }
+
+      if (nearestTracker) {
+        // ── MATCH — обновляем трекер с EMA-сглаживанием ──────────
+        //
+        // EMA (Exponential Moving Average) подавляет джиттер детекции:
+        //   новое_значение = α * старое + (1-α) * измерение
+        //
+        // α из config (в %, конвертируем в 0..1)
+        // По умолчанию: 70% для позиции, 80% для размера
+        //
+        const alphaPos = config.poiEmaPosition / 100;
+        const alphaSize = config.poiEmaSize / 100;
+        
+        nearestTracker.cx = alphaPos * nearestTracker.cx + (1 - alphaPos) * regionCx;
+        nearestTracker.cy = alphaPos * nearestTracker.cy + (1 - alphaPos) * regionCy;
+        nearestTracker.width = alphaSize * nearestTracker.width + (1 - alphaSize) * region.width;
+        nearestTracker.height = alphaSize * nearestTracker.height + (1 - alphaSize) * region.height;
+        nearestTracker.frameCount++;
+        nearestTracker.age = 0;  // сброс aging — объект активен
+        usedTrackers.add(nearestTracker);
+      } else {
+        // ── NO MATCH — создаём новый трекер ─────────────────────
+        this._poiTrackers.push({
+          cx: regionCx,
+          cy: regionCy,
+          width: region.width,
+          height: region.height,
+          frameCount: 1,
+          age: 0,
+          id: this._nextPoiId++
+        });
+      }
+    }
+
+    // ── Шаг 3: Aging неиспользованных трекеров ──────────────────
+    //
+    // Трекеры, которые не совпали ни с одним region → стареют.
+    // После poiPersistence кадров удаляем (fade-out).
+    //
+    for (const tracker of this._poiTrackers) {
+      if (!usedTrackers.has(tracker)) {
+        tracker.age++;
+      }
+    }
+
+    // ── Шаг 4: Очистка по persistence ───────────────────────────
+    this._poiTrackers = this._poiTrackers.filter(
+      t => t.age <= config.poiPersistence
+    );
+
+    // ── Шаг 5: Фильтрация + ранжирование для рендера ───────────
+    //
+    // Показываем только трекеры, которые:
+    //   1. Достигли минимального порога устойчивости (frameCount >= poiMinFrames)
+    //   2. Площадь в допустимых пределах [poiMinSize, poiMaxSize]
+    //
+    // Сортируем по frameCount (самые устойчивые первыми),
+    // берём топ-N (poiMaxZones).
+    //
+    this._poiResults = this._poiTrackers
+      .filter(t => {
+        const area = t.width * t.height;
+        return t.frameCount >= config.poiMinFrames &&
+               area >= config.poiMinSize &&
+               area <= config.poiMaxSize;
+      })
+      .sort((a, b) => b.frameCount - a.frameCount)
+      .slice(0, config.poiMaxZones);
+  }
+
   // ==========================================================
   // 🎨 Приватный пайплайн — Визуализация
   // ==========================================================
@@ -632,6 +827,9 @@ class MotionDetector {
     if (this._regions.length > 0) {
       this._renderBBTo(this._layerCanvases[2].getContext('2d'), displayW, displayH);
     }
+
+    // Layer 3: POI HUD
+    this._renderPoiTo(this._layerCanvases[3].getContext('2d'), displayW, displayH);
   }
 
   /** Рендер маски пикселей на произвольный ctx */
@@ -703,6 +901,169 @@ class MotionDetector {
       ctx.strokeRect(x, y, rw, rh);
       const area = region.width * region.height;
       ctx.fillText(`${area}px²`, x + 2, y - 4);
+    }
+  }
+
+  /**
+   * Рендер POI HUD на произвольный ctx (layer 3)
+   * 
+   * Три визуальных элемента:
+   *   1. HUD Crosshair (всегда):
+   *      - Тонкие серые линии через центр canvas
+   *      - Утолщённый центральный маркер 16×16px
+   *   
+   *   2. POI Zones (если не шум):
+   *      - BB прямоугольник: 4 цвета по состоянию трекинга
+   *        • Зелёный #00FF00: age=0, frameCount >= 2×poiMinFrames (уверенный трекинг)
+   *        • Оранжевый #FF8C00: age=0, frameCount >= poiMinFrames (сомнительный)
+   *        • Красный #FF3030: age>0, age <= persistence/2 (потеря недавняя)
+   *        • Тёмно-красный #990000: age > persistence/2 (старый, скоро удалится)
+   *      - Перекрестие 10px в центре POI
+   *      - Пунктирные линии от центра canvas к POI (по осям)
+   *      - Текст смещения в % от центра: "X:+12% Y:-8%"
+   *   
+   *   3. Noise indicator (если _poiNoiseMode):
+   *      - Текст "NOISE" в центре canvas
+   * 
+   * @private
+   * @param {CanvasRenderingContext2D} ctx - контекст offscreen layer canvas
+   * @param {number} w - ширина canvas (display space)
+   * @param {number} h - высота canvas (display space)
+   */
+  _renderPoiTo(ctx, w, h) {
+    const { config } = this;
+    const scaleX = w / config.processWidth;
+    const scaleY = h / config.processHeight;
+
+    const canvasCx = w / 2;
+    const canvasCy = h / 2;
+
+    // ── 1. HUD Crosshair (всегда рисуем) ───────────────────────
+    //
+    // Тонкие серые линии через центр + утолщённый маркер центра
+    //
+    ctx.strokeStyle = 'rgba(200, 200, 200, 0.4)';
+    ctx.lineWidth = 1;
+
+    // Горизонтальная линия через весь canvas
+    ctx.beginPath();
+    ctx.moveTo(0, canvasCy);
+    ctx.lineTo(w, canvasCy);
+    ctx.stroke();
+
+    // Вертикальная линия через весь canvas
+    ctx.beginPath();
+    ctx.moveTo(canvasCx, 0);
+    ctx.lineTo(canvasCx, h);
+    ctx.stroke();
+
+    // Центральный маркер (16×16 px, утолщённая линия)
+    ctx.lineWidth = 2;
+    const markerSize = 8; // половина 16px
+    ctx.beginPath();
+    ctx.moveTo(canvasCx - markerSize, canvasCy);
+    ctx.lineTo(canvasCx + markerSize, canvasCy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(canvasCx, canvasCy - markerSize);
+    ctx.lineTo(canvasCx, canvasCy + markerSize);
+    ctx.stroke();
+
+    // ── 2. Режим "шум" — текст вместо зон ──────────────────────
+    if (this._poiNoiseMode) {
+      ctx.font = '24px monospace';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('NOISE', canvasCx, canvasCy - 40);
+      return;
+    }
+
+    // ── 3. POI Zones — прицелы + смещения ──────────────────────
+    if (this._poiResults.length === 0) return;
+
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    for (const poi of this._poiResults) {
+      const poiCx = poi.cx * scaleX;
+      const poiCy = poi.cy * scaleY;
+      const poiW = poi.width * scaleX;
+      const poiH = poi.height * scaleY;
+
+      // ── Логика цвета (4 режима по состоянию трекинга) ───────
+      //
+      // Зелёный:        age=0, frameCount >= 2x (уверенное трассирование)
+      // Оранжевый:      age=0, frameCount >= 1x (сомнительный)
+      // Красный яркий:  age > 0, age <= persistence/2 (потеря)
+      // Красный тёмный: age > persistence/2 (старый, скоро удалится)
+      //
+      let color;
+      if (poi.age === 0) {
+        // Активное трассирование
+        if (poi.frameCount >= config.poiMinFrames * 2) {
+          color = '#00FF00';  // зелёный — уверенный трекинг
+        } else {
+          color = '#FF8C00';  // оранжевый — сомнительный
+        }
+      } else {
+        // Потеря объекта (persistence mode)
+        if (poi.age <= config.poiPersistence / 2) {
+          color = '#FF3030';  // красный яркий — недавняя потеря
+        } else {
+          color = '#990000';  // красный тёмный — старый, скоро удалится
+        }
+      }
+
+      // ── BB прямоугольник ────────────────────────────────────
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      const x = poiCx - poiW / 2;
+      const y = poiCy - poiH / 2;
+      ctx.strokeRect(x, y, poiW, poiH);
+
+      // ── Перекрестие центра POI ──────────────────────────────
+      const crossSize = 5;
+      ctx.beginPath();
+      ctx.moveTo(poiCx - crossSize, poiCy);
+      ctx.lineTo(poiCx + crossSize, poiCy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(poiCx, poiCy - crossSize);
+      ctx.lineTo(poiCx, poiCy + crossSize);
+      ctx.stroke();
+
+      // ── Пунктирные линии к центру (по осям) ─────────────────
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1;
+
+      // Горизонтальная пунктирная линия от центра canvas до POI
+      ctx.beginPath();
+      ctx.moveTo(canvasCx, poiCy);
+      ctx.lineTo(poiCx, poiCy);
+      ctx.stroke();
+
+      // Вертикальная пунктирная линия от центра canvas до POI
+      ctx.beginPath();
+      ctx.moveTo(poiCx, canvasCy);
+      ctx.lineTo(poiCx, poiCy);
+      ctx.stroke();
+
+      ctx.setLineDash([]);  // сброс пунктира
+
+      // ── Текст смещения (проценты от центра) ─────────────────
+      //
+      // offsetX = ((poiCx - canvasCx) / (w/2)) * 100
+      // offsetY = ((poiCy - canvasCy) / (h/2)) * 100
+      //
+      const offsetX = Math.round(((poiCx - canvasCx) / (w / 2)) * 100);
+      const offsetY = Math.round(((poiCy - canvasCy) / (h / 2)) * 100);
+      const signX = offsetX >= 0 ? '+' : '';
+      const signY = offsetY >= 0 ? '+' : '';
+
+      ctx.fillStyle = color;
+      ctx.fillText(`X:${signX}${offsetX}% Y:${signY}${offsetY}%`, x + 4, y - 16);
     }
   }
 

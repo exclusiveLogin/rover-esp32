@@ -78,6 +78,17 @@ window.AppDefaults = {
   motionDilate: 2,            // Итерации dilate
   motionBlur: 5,              // Размер GaussianBlur ядра
 
+  // POI Tracking
+  poiMinFrames: 5,            // Мин. кадров устойчивости для квалификации POI
+  poiMatchRadius: 30,         // Радиус сопоставления центров (px)
+  poiPersistence: 5,          // Кадров удержания прицела после пропадания (fade-out)
+  poiMinSize: 500,            // Мин. площадь BB для POI (px²)
+  poiMaxSize: 50000,          // Макс. площадь BB для POI (px²)
+  poiMaxZones: 3,             // Макс. кол-во зон POI
+  poiNoiseThreshold: 30,      // Порог motionPercent для режима "шум" (%)
+  poiEmaPosition: 70,         // EMA коэфф. для позиции (% старого значения, 50..90)
+  poiEmaSize: 80,             // EMA коэфф. для размера (% старого значения, 50..95)
+
   // ═══════════════════════════════════════════════════════════
   // 🖼️ UI flags (мутабельный, персистится)
   // ═══════════════════════════════════════════════════════════
@@ -139,6 +150,7 @@ window.AppDefaults = {
     showContours: false,
     showDesaturate: false,
     showOSD: true,
+    showPoi: true,
   },
 
   UI: {

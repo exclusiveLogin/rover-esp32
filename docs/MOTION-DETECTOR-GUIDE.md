@@ -11,10 +11,11 @@
 1. [Быстрый старт](#быстрый-старт)
 2. [Архитектура](#архитектура)
 3. [Алгоритм детекции](#алгоритм-детекции)
-4. [API Reference](#api-reference)
-5. [Конфигурация](#конфигурация)
-6. [Визуализация](#визуализация)
-7. [Оптимизация](#оптимизация)
+4. [🎯 POI Tracking](#poi-tracking)
+5. [API Reference](#api-reference)
+6. [Конфигурация](#конфигурация)
+7. [Визуализация](#визуализация)
+8. [Оптимизация](#оптимизация)
 
 ---
 
@@ -81,12 +82,13 @@ Motion Detector и Scene (CVProcessor) работают через **едины�
 └─────────────────────────────────────────────────┘
 ```
 
-#### Слои Motion (MotionDetector) — 3 штуки:
+#### Слои Motion (MotionDetector) — 4 штуки:
 | localIndex | Имя | Описание |
 |------------|-----|----------|
 | 0 | Mask | Красная маска пикселей движения |
 | 1 | Contours | Контуры (силуэты) объектов |
 | 2 | BB | Bounding boxes (рамки) |
+| 3 | **POI** | **HUD прицелов + смещения (POI Tracking)** |
 
 Каждый слой рендерится в **offscreen canvas** и отдаётся через `getLayer(localIndex)`.
 
@@ -151,13 +153,18 @@ _processFrame()                     ← оркестратор одного ка
   │                                    → this._mask, this._motionPercent
   │
   ├── _findRegions()                ← findContours + boundingRect + filter
-  │     (SKIP if showBoxes=false)      → this._regions, this._centerOfMass
+  │                                    → this._regions, this._centerOfMass
   │
-  ├── _render()                     ← рисуем на ПРОЗРАЧНЫЙ canvas
-  │     ├── _renderPixelMask()         если showPixels
-  │     └── _renderBoundingBoxes()     если showBoxes
+  ├── _updatePoiTrackers()          ← POI Tracking: корреляция + накопление
+  │                                    → this._poiTrackers, this._poiResults
   │
-  ├── onMotion(result)              ← callback с метаданными
+  ├── _renderLayerCanvases()        ← рисуем в offscreen canvases (4 слоя)
+  │     ├── _renderPixelMaskTo()       Layer 0: Mask
+  │     ├── _renderContoursTo()        Layer 1: Contours
+  │     ├── _renderBBTo()              Layer 2: BB
+  │     └── _renderPoiTo()             Layer 3: POI HUD
+  │
+  ├── onMotion(result)              ← callback с метаданными + POI
   │
   └── prevGray = currentGray        ← обновление стейта
 ```
@@ -220,6 +227,246 @@ findContours (RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
 
 ---
 
+## 🎯 POI Tracking
+
+**POI (Point of Interest)** — модуль темпорального трекинга устойчивых движущихся объектов с HUD-прицелом для последующего центрирования камеры.
+
+### Задача
+
+- Отличить **стабильное движение** (человек, животное) от **шума** (листва, тряска камеры)
+- Накопить **достоверность** объекта по времени (кол-во кадров устойчивого движения)
+- Отобразить **прицел + смещение** для системы управления подвесом камеры
+
+### Алгоритм (SORT-подобный трекинг)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  _updatePoiTrackers() — вызывается после _findRegions()        │
+│                                                                 │
+│  Входные данные:                                                │
+│    • this._regions[]       ← текущие BB из детекции движения   │
+│    • this._motionPercent   ← процент движущихся пикселей       │
+│                                                                 │
+│  Шаг 1: Проверка шумового режима                                │
+│    if (motionPercent > poiNoiseThreshold):                     │
+│      _poiNoiseMode = true   → пропуск рендера зон              │
+│                                                                 │
+│  Шаг 2: Матчинг текущих регионов с трекерами                    │
+│    for region in _regions:                                      │
+│      nearestTracker = findNearest(_poiTrackers, region.center) │
+│      if (distance < poiMatchRadius):                            │
+│        ✅ MATCH — обновляем трекер с EMA-сглаживанием:          │
+│          tracker.cx = 0.7 × tracker.cx + 0.3 × region.cx       │
+│          tracker.cy = 0.7 × tracker.cy + 0.3 × region.cy       │
+│          tracker.width  = 0.8 × old + 0.2 × new                │
+│          tracker.height = 0.8 × old + 0.2 × new                │
+│          tracker.frameCount++                                   │
+│          tracker.age = 0     ← сброс aging                      │
+│      else:                                                      │
+│        ➕ NEW — создаём трекер { cx, cy, w, h, frameCount=1 }  │
+│                                                                 │
+│  Шаг 3: Aging неиспользованных трекеров                          │
+│    for tracker not matched:                                     │
+│      tracker.age++                                              │
+│                                                                 │
+│  Шаг 4: Persistence cleanup                                     │
+│    _poiTrackers = filter(age <= poiPersistence)                │
+│                                                                 │
+│  Шаг 5: Фильтрация для рендера                                  │
+│    _poiResults = filter(                                        │
+│      frameCount >= poiMinFrames                                │
+│      AND area in [poiMinSize, poiMaxSize]                      │
+│    )                                                            │
+│                                                                 │
+│  Шаг 6: Ранжирование                                             │
+│    sort(_poiResults by frameCount DESC)  ← самые устойчивые    │
+│    take top N (poiMaxZones)                                     │
+│                                                                 │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### EMA-сглаживание (Exponential Moving Average)
+
+Подавляет джиттер (дрожание) детекции контуров. Коэффициенты **настраиваются через UI** (`poiEmaPosition`, `poiEmaSize`):
+
+```javascript
+// α (alpha) = poiEmaPosition / 100  (default: 70% → 0.7)
+// Меньше α = быстрее реакция, больше дёрганий
+// Больше α = плавнее, медленнее реакция
+newCx = α × oldCx + (1-α) × measuredCx
+
+// α для размера (default: 80% → 0.8) — медленнее, т.к. размер BB нестабилен
+newWidth = α × oldWidth + (1-α) × measuredWidth
+```
+
+**Рекомендации:**
+- Быстрое движение (животные): `poiEmaPosition=60`, `poiEmaSize=70`
+- Медленное движение (человек): `poiEmaPosition=70`, `poiEmaSize=80` (default)
+- Шумная камера (ESP32-CAM): `poiEmaPosition=80`, `poiEmaSize=85`
+
+### Трекер (структура данных)
+
+```javascript
+{
+  cx: 160,          // Центр X (process space, px)
+  cy: 120,          // Центр Y (process space, px)
+  width: 80,        // Ширина BB (px)
+  height: 60,       // Высота BB (px)
+  frameCount: 12,   // Кол-во кадров устойчивого движения (достоверность)
+  age: 0,           // Кол-во кадров без обнаружения (для fade-out)
+  id: 3             // Уникальный ID трекера
+}
+```
+
+### Визуализация (Layer 3: POI HUD)
+
+#### 1. HUD Crosshair (всегда рисуется)
+
+```
+         │
+         │
+─────────┼─────────  ← тонкая серая линия через весь canvas
+         ┃
+         ┃           ← утолщённый центральный маркер 16×16px
+─────────╋─────────
+         ┃
+         │
+```
+
+#### 2. POI Zones (если не шум)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                          │                              │
+│                          │                              │
+│         ╔═══════╗        │                              │
+│         ║   +   ║ ←──────┼── BB прямоугольник (красный)│
+│         ║       ║        │   + перекрестие центра      │
+│         ╚═══════╝        │                              │
+│         X:+15% Y:-8%     │   ← текст смещения от центра│
+│            ·  ·  ·  ·  · │ · ·  ← пунктир по осям       │
+│            ·             │    ·                         │
+│─────────────────────────┼───────────────────────────────│
+│                          │                              │
+│                        [ NOISE ]  ← текст если шум      │
+│                          │                              │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Цветовая логика (4 режима по состоянию трекинга):**
+
+| Состояние | Цвет | Условие |
+|-----------|------|---------|
+| **Уверенное трассирование** | 🟢 Зелёный `#00FF00` | `age = 0` И `frameCount ≥ 2×poiMinFrames` |
+| **Сомнительный** | 🟠 Оранжевый `#FF8C00` | `age = 0` И `frameCount ≥ poiMinFrames` |
+| **Потеря (недавняя)** | 🔴 Красный `#FF3030` | `age > 0` И `age ≤ poiPersistence/2` |
+| **Старый (скоро удалится)** | 🔴 Тёмно-красный `#990000` | `age > poiPersistence/2` |
+
+#### 3. Noise Indicator
+
+Если `motionPercent > poiNoiseThreshold` → текст **"NOISE"** в центре canvas. POI зоны не рисуются.
+
+### Параметры POI
+
+| Параметр | Default | Range | Описание |
+|----------|---------|-------|----------|
+| `poiMinFrames` | 5 | 2..30 | Мин. кадров устойчивости для квалификации POI |
+| `poiMatchRadius` | 30 | 5..100 | Макс. расстояние (px) между центрами для сопоставления tracker ↔ region |
+| `poiPersistence` | 5 | 0..30 | Кол-во кадров удержания прицела после пропадания движения (fade-out) |
+| `poiMinSize` | 500 | 100..10k | Мин. площадь BB (px²) для квалификации |
+| `poiMaxSize` | 50000 | 5k..100k | Макс. площадь BB (px²) для квалификации |
+| `poiMaxZones` | 3 | 1..3 | Макс. кол-во одновременных POI зон |
+| `poiNoiseThreshold` | 30 | 10..80 | Порог `motionPercent` (%), выше которого = режим "шум" |
+| `poiEmaPosition` | 70 | 50..90 | EMA коэфф. для позиции (% старого значения). Ниже = быстрее реакция |
+| `poiEmaSize` | 80 | 50..95 | EMA коэфф. для размера (% старого значения). Выше = плавнее |
+
+### Режимы работы
+
+#### 1. Нормальный режим
+
+```javascript
+// motionPercent < poiNoiseThreshold (например, 12% < 30%)
+// Локальное движение (кот, человек)
+
+_poiResults = [
+  { cx: 120, cy: 80, frameCount: 15, age: 0 },  // Зелёный (15 ≥ 2×5, уверенный)
+  { cx: 200, cy: 150, frameCount: 6, age: 0 },  // Оранжевый (6 ≥ 5, сомнительный)
+]
+
+→ Рисуем 2 POI зоны с прицелами + смещениями
+```
+
+#### 2. Шумовой режим
+
+```javascript
+// motionPercent > poiNoiseThreshold (например, 45% > 30%)
+// Тряска камеры, ветер, смена сцены
+
+_poiNoiseMode = true
+
+→ Рисуем только текст "NOISE", POI зоны пропускаем
+```
+
+#### 3. Persistence (fade-out)
+
+```javascript
+// Объект пропал (region больше нет), но трекер ещё держим
+
+tracker.age = 2   // 2 кадра без обнаружения
+frameCount = 12   // накопленная достоверность
+poiPersistence = 5 (default)
+
+→ age=2 <= 5/2 → Рисуем красным (потеря недавняя)
+
+tracker.age = 4   // 4 кадра без обнаружения
+
+→ age=4 > 5/2 → Рисуем тёмно-красным (старый, скоро удалится)
+→ Через poiPersistence кадров (5) → удаляем трекер
+```
+
+### Use Case: Центрирование камеры
+
+```javascript
+detector.onMotion = (result) => {
+  if (result.poiNoiseMode) {
+    console.log('Слишком много шума — пропускаем');
+    return;
+  }
+
+  if (result.poiCount === 0) {
+    console.log('Нет устойчивых POI');
+    return;
+  }
+
+  // Берём самый устойчивый POI (первый в массиве — отсортировано по frameCount)
+  const poi = result.pois[0];
+
+  // Смещение от центра canvas в %
+  const offsetX = ((poi.cx - canvasWidth/2) / (canvasWidth/2)) * 100;
+  const offsetY = ((poi.cy - canvasHeight/2) / (canvasHeight/2)) * 100;
+
+  console.log(`POI offset: X=${offsetX.toFixed(1)}%, Y=${offsetY.toFixed(1)}%`);
+  
+  // Отправляем команду на сервоприводы подвеса камеры
+  moveCameraGimbal(offsetX, offsetY);
+};
+```
+
+### Оптимизация POI
+
+```
+Сценарий                     poiMinFrames   poiMatchRadius   poiPersistence
+─────────────────────────    ────────────   ──────────────   ──────────────
+Быстрое движение (животное)      3              40               3
+Медленное движение (человек)     7              25               8
+Шумная камера (ESP32-CAM)        10             50               5
+Точное наведение                 15             15               2
+```
+
+**Совет:** чем больше `poiMinFrames` — тем выше порог устойчивости, но медленнее реакция на новый объект.
+
+---
+
 ## API Reference
 
 ### Конструктор
@@ -248,8 +495,8 @@ new MotionDetector(videoElement, overlayCanvas, options)
 | Метод | Возврат | Описание |
 |-------|---------|----------|
 | `tick(now)` | `void` | Вызывается Compositor'ом каждый RAF-кадр. Внутри throttle по `processInterval`. |
-| `getLayer(localIndex)` | `HTMLCanvasElement \| null` | Возвращает offscreen canvas для слоя 0..2 |
-| `MotionDetector.LAYER_COUNT` | `3` | Статическое свойство: число слоёв |
+| `getLayer(localIndex)` | `HTMLCanvasElement \| null` | Возвращает offscreen canvas для слоя 0..3 |
+| `MotionDetector.LAYER_COUNT` | `4` | Статическое свойство: число слоёв (Mask, Contours, BB, POI) |
 
 ### Методы настройки слоёв
 
@@ -264,6 +511,18 @@ new MotionDetector(videoElement, overlayCanvas, options)
 |-------|---------|----------|
 | `setThreshold(value)` | `void` | Порог детекции (0-255) |
 | `setMinArea(value)` | `void` | Мин. площадь контура (px²) |
+| `setBlurSize(value)` | `void` | Размер Gaussian blur ядра (3-15, нечётный) |
+| `setDilateIterations(value)` | `void` | Итерации dilate (0-5) |
+| **POI Tracking:** | | |
+| `setPoiMinFrames(value)` | `void` | Мин. кадров устойчивости (2-30) |
+| `setPoiMatchRadius(value)` | `void` | Радиус сопоставления (5-100 px) |
+| `setPoiPersistence(value)` | `void` | Кадров удержания после пропадания (0-30) |
+| `setPoiMinSize(value)` | `void` | Мин. площадь BB для POI (100-10000 px²) |
+| `setPoiMaxSize(value)` | `void` | Макс. площадь BB для POI (5000-100000 px²) |
+| `setPoiMaxZones(value)` | `void` | Макс. зон POI (1-3) |
+| `setPoiNoiseThreshold(value)` | `void` | Порог шума motionPercent (10-80 %) |
+| `setPoiEmaPosition(value)` | `void` | EMA коэфф. позиции (50-90 %) |
+| `setPoiEmaSize(value)` | `void` | EMA коэфф. размера (50-95 %) |
 | `updateConfig(options)` | `void` | Обновить любые настройки |
 
 ### Callbacks
@@ -284,6 +543,15 @@ new MotionDetector(videoElement, overlayCanvas, options)
     { x: 200, y: 100, width: 80, height: 60 },
   ],
   centerOfMass: { x: 105, y: 60 },  // Центр масс (null если нет движения)
+  
+  // ─── POI Tracking ───────────────────────────────────────────
+  poiCount: 2,                   // Кол-во устойчивых POI
+  pois: [                        // Массив POI (отсортировано по frameCount DESC)
+    { cx: 120, cy: 80, width: 60, height: 50, frameCount: 15, age: 0, id: 1 },
+    { cx: 200, cy: 150, width: 80, height: 70, frameCount: 8, age: 0, id: 2 },
+  ],
+  poiNoiseMode: false,           // true если motionPercent > poiNoiseThreshold
+  
   timestamp: 1699123456789       // Время обработки (ms)
 }
 ```

@@ -28,6 +28,9 @@
     'deadzone', 'joystickScale',
     // Motion params
     'motionThreshold', 'motionMinArea', 'motionDilate', 'motionBlur',
+    // POI params
+    'poiMinFrames', 'poiMatchRadius', 'poiPersistence', 'poiMinSize', 'poiMaxSize', 'poiMaxZones', 'poiNoiseThreshold',
+    'poiEmaPosition', 'poiEmaSize',
     // UI flags
     'baseLayer', 'motionDesaturate', 'motionOsd',
   ];

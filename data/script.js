@@ -1130,12 +1130,13 @@
       });
     }
 
-    // Motion: 3 слоя (localIndex 0..2)
-    const motionLabels = ['Mask', 'Contours', 'BB'];
+    // Motion: 4 слоя (localIndex 0..3)
+    const motionLabels = ['Mask', 'Contours', 'BB', 'POI'];
     const motionDefaults = [
       AppState.MOTION.showPixels !== false,
       AppState.MOTION.showContours === true,
-      AppState.MOTION.showBoxes !== false
+      AppState.MOTION.showBoxes !== false,
+      AppState.MOTION.showPoi !== false
     ];
     for (let i = 0; i < AppState.processors.motion.count; i++) {
       layers.push({
@@ -1416,6 +1417,39 @@
         }
       });
     }
+
+    // Слайдеры POI Tracking (с persist через AppState.set)
+    const poiSliders = [
+      { id: 'poi-minframes-slider',       valId: 'poi-minframes-value',       method: 'setPoiMinFrames',       stateKey: 'poiMinFrames' },
+      { id: 'poi-matchradius-slider',     valId: 'poi-matchradius-value',     method: 'setPoiMatchRadius',     stateKey: 'poiMatchRadius' },
+      { id: 'poi-persistence-slider',     valId: 'poi-persistence-value',     method: 'setPoiPersistence',     stateKey: 'poiPersistence' },
+      { id: 'poi-minsize-slider',         valId: 'poi-minsize-value',         method: 'setPoiMinSize',         stateKey: 'poiMinSize' },
+      { id: 'poi-maxsize-slider',         valId: 'poi-maxsize-value',         method: 'setPoiMaxSize',         stateKey: 'poiMaxSize' },
+      { id: 'poi-maxzones-slider',        valId: 'poi-maxzones-value',        method: 'setPoiMaxZones',        stateKey: 'poiMaxZones' },
+      { id: 'poi-noisethreshold-slider',  valId: 'poi-noisethreshold-value',  method: 'setPoiNoiseThreshold',  stateKey: 'poiNoiseThreshold' },
+      { id: 'poi-emaposition-slider',     valId: 'poi-emaposition-value',     method: 'setPoiEmaPosition',     stateKey: 'poiEmaPosition' },
+      { id: 'poi-emasize-slider',         valId: 'poi-emasize-value',         method: 'setPoiEmaSize',         stateKey: 'poiEmaSize' },
+    ];
+
+    for (const s of poiSliders) {
+      const slider = document.getElementById(s.id);
+      const valEl = document.getElementById(s.valId);
+      if (!slider) continue;
+
+      // Начальные значения из AppState
+      slider.value = AppState[s.stateKey];
+      if (valEl) valEl.textContent = AppState[s.stateKey];
+
+      slider.addEventListener('input', () => {
+        const val = parseInt(slider.value);
+        if (valEl) valEl.textContent = val;
+        AppState.set(s.stateKey, val);
+        const proc = AppState.processors.motion.instance;
+        if (proc && typeof proc[s.method] === 'function') {
+          proc[s.method](val);
+        }
+      });
+    }
   }
 
   function toggleMotion() {
@@ -1444,6 +1478,16 @@
         minContourArea: AppState.motionMinArea,
         dilateIterations: AppState.motionDilate,
         blurSize: AppState.motionBlur,
+        // POI Tracking
+        poiMinFrames: AppState.poiMinFrames,
+        poiMatchRadius: AppState.poiMatchRadius,
+        poiPersistence: AppState.poiPersistence,
+        poiMinSize: AppState.poiMinSize,
+        poiMaxSize: AppState.poiMaxSize,
+        poiMaxZones: AppState.poiMaxZones,
+        poiNoiseThreshold: AppState.poiNoiseThreshold,
+        poiEmaPosition: AppState.poiEmaPosition,
+        poiEmaSize: AppState.poiEmaSize,
         onMotion: (result) => updateMotionOSD(result),
         onError: (err) => console.error('Motion error:', err)
       });
