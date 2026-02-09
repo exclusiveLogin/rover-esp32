@@ -637,7 +637,7 @@ void webserverStartMain() {
     config.server_port = HTTP_PORT_MAIN;
     config.ctrl_port = 32768;        // Порт управления httpd (внутренний)
     config.max_open_sockets = 5;     // Макс. одновременных HTTP-соединений
-    config.max_uri_handlers = 20;    // Макс. зарегистрированных маршрутов
+    config.max_uri_handlers = 24;    // Макс. зарегистрированных маршрутов
     config.lru_purge_enable = true;  // Автоочистка старых соединений
 
     if (httpd_start(&mainHttpd, &config) != ESP_OK) {
