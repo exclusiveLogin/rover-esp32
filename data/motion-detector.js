@@ -733,10 +733,18 @@ class MotionDetector {
         const alphaPos = config.poiEmaPosition / 100;
         const alphaSize = config.poiEmaSize / 100;
         
+        // Сглаженные координаты (для матчинга/стабильности)
         nearestTracker.cx = alphaPos * nearestTracker.cx + (1 - alphaPos) * regionCx;
         nearestTracker.cy = alphaPos * nearestTracker.cy + (1 - alphaPos) * regionCy;
         nearestTracker.width = alphaSize * nearestTracker.width + (1 - alphaSize) * region.width;
         nearestTracker.height = alphaSize * nearestTracker.height + (1 - alphaSize) * region.height;
+        
+        // Актуальные координаты текущего кадра (для отрисовки прицела без лага)
+        nearestTracker.rawCx = regionCx;
+        nearestTracker.rawCy = regionCy;
+        nearestTracker.rawWidth = region.width;
+        nearestTracker.rawHeight = region.height;
+        
         nearestTracker.frameCount++;
         nearestTracker.age = 0;  // сброс aging — объект активен
         usedTrackers.add(nearestTracker);
@@ -747,6 +755,10 @@ class MotionDetector {
           cy: regionCy,
           width: region.width,
           height: region.height,
+          rawCx: regionCx,    // изначально совпадают
+          rawCy: regionCy,
+          rawWidth: region.width,
+          rawHeight: region.height,
           frameCount: 1,
           age: 0,
           id: this._nextPoiId++
@@ -987,10 +999,12 @@ class MotionDetector {
     ctx.textBaseline = 'top';
 
     for (const poi of this._poiResults) {
-      const poiCx = poi.cx * scaleX;
-      const poiCy = poi.cy * scaleY;
-      const poiW = poi.width * scaleX;
-      const poiH = poi.height * scaleY;
+      // Используем RAW координаты (актуальные) для отрисовки прицела без лага
+      // EMA-сглаженные (cx,cy) остаются для алгоритма матчинга
+      const poiCx = (poi.rawCx || poi.cx) * scaleX;
+      const poiCy = (poi.rawCy || poi.cy) * scaleY;
+      const poiW = (poi.rawWidth || poi.width) * scaleX;
+      const poiH = (poi.rawHeight || poi.height) * scaleY;
 
       // ── Логика цвета (4 режима по состоянию трекинга) ───────
       //

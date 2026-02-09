@@ -256,10 +256,14 @@ findContours (RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
 │      nearestTracker = findNearest(_poiTrackers, region.center) │
 │      if (distance < poiMatchRadius):                            │
 │        ✅ MATCH — обновляем трекер с EMA-сглаживанием:          │
-│          tracker.cx = 0.7 × tracker.cx + 0.3 × region.cx       │
-│          tracker.cy = 0.7 × tracker.cy + 0.3 × region.cy       │
+│          tracker.cx = 0.7 × tracker.cx + 0.3 × region.cx       │  ← для матчинга
+│          tracker.cy = 0.7 × tracker.cy + 0.3 × region.cy       │  ← стабильные
 │          tracker.width  = 0.8 × old + 0.2 × new                │
 │          tracker.height = 0.8 × old + 0.2 × new                │
+│          tracker.rawCx = region.cx       ← актуальные (для отрисовки)
+│          tracker.rawCy = region.cy       ← без лага!
+│          tracker.rawWidth = region.width
+│          tracker.rawHeight = region.height
 │          tracker.frameCount++                                   │
 │          tracker.age = 0     ← сброс aging                      │
 │      else:                                                      │
@@ -299,6 +303,14 @@ newCx = α × oldCx + (1-α) × measuredCx
 newWidth = α × oldWidth + (1-α) × measuredWidth
 ```
 
+**Двойные координаты (dual coordinates):**
+
+Трекер хранит **две пары координат**:
+- **`cx, cy, width, height`** — EMA-сглаженные (для алгоритма матчинга, стабильность трекера)
+- **`rawCx, rawCy, rawWidth, rawHeight`** — актуальные координаты текущего кадра (для отрисовки прицела)
+
+**Зачем:** EMA создаёт задержку (lag). Прицел, нарисованный по сглаженным координатам, запаздывает за реальным объектом. Используя `raw*` координаты для визуализации, прицел точно попадает в центр BB текущего кадра.
+
 **Рекомендации:**
 - Быстрое движение (животные): `poiEmaPosition=60`, `poiEmaSize=70`
 - Медленное движение (человек): `poiEmaPosition=70`, `poiEmaSize=80` (default)
@@ -308,10 +320,18 @@ newWidth = α × oldWidth + (1-α) × measuredWidth
 
 ```javascript
 {
+  // EMA-сглаженные координаты (для алгоритма матчинга)
   cx: 160,          // Центр X (process space, px)
   cy: 120,          // Центр Y (process space, px)
   width: 80,        // Ширина BB (px)
   height: 60,       // Высота BB (px)
+  
+  // Актуальные координаты текущего кадра (для отрисовки прицела без лага)
+  rawCx: 162,       // Центр X текущего региона
+  rawCy: 118,       // Центр Y текущего региона
+  rawWidth: 78,     // Ширина текущего региона
+  rawHeight: 62,    // Высота текущего региона
+  
   frameCount: 12,   // Кол-во кадров устойчивого движения (достоверность)
   age: 0,           // Кол-во кадров без обнаружения (для fade-out)
   id: 3             // Уникальный ID трекера
@@ -441,9 +461,13 @@ detector.onMotion = (result) => {
   // Берём самый устойчивый POI (первый в массиве — отсортировано по frameCount)
   const poi = result.pois[0];
 
+  // Используем RAW координаты (актуальные) для точного наведения без лага
+  const targetX = poi.rawCx || poi.cx;
+  const targetY = poi.rawCy || poi.cy;
+
   // Смещение от центра canvas в %
-  const offsetX = ((poi.cx - canvasWidth/2) / (canvasWidth/2)) * 100;
-  const offsetY = ((poi.cy - canvasHeight/2) / (canvasHeight/2)) * 100;
+  const offsetX = ((targetX - canvasWidth/2) / (canvasWidth/2)) * 100;
+  const offsetY = ((targetY - canvasHeight/2) / (canvasHeight/2)) * 100;
 
   console.log(`POI offset: X=${offsetX.toFixed(1)}%, Y=${offsetY.toFixed(1)}%`);
   
@@ -547,8 +571,16 @@ new MotionDetector(videoElement, overlayCanvas, options)
   // ─── POI Tracking ───────────────────────────────────────────
   poiCount: 2,                   // Кол-во устойчивых POI
   pois: [                        // Массив POI (отсортировано по frameCount DESC)
-    { cx: 120, cy: 80, width: 60, height: 50, frameCount: 15, age: 0, id: 1 },
-    { cx: 200, cy: 150, width: 80, height: 70, frameCount: 8, age: 0, id: 2 },
+    { 
+      cx: 120, cy: 80, width: 60, height: 50,           // EMA-сглаженные (для матчинга)
+      rawCx: 118, rawCy: 82, rawWidth: 62, rawHeight: 48, // Актуальные (для отрисовки)
+      frameCount: 15, age: 0, id: 1 
+    },
+    { 
+      cx: 200, cy: 150, width: 80, height: 70,
+      rawCx: 202, rawCy: 148, rawWidth: 78, rawHeight: 72,
+      frameCount: 8, age: 0, id: 2 
+    },
   ],
   poiNoiseMode: false,           // true если motionPercent > poiNoiseThreshold
   
