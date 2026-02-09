@@ -268,12 +268,12 @@ class MotionDetector {
 
   /** Установить мин. площадь BB для POI (px²) */
   setPoiMinSize(value) {
-    this.config.poiMinSize = Math.max(100, Math.min(10000, value));
+    this.config.poiMinSize = Math.max(50, Math.min(5000, value));
   }
 
   /** Установить макс. площадь BB для POI (px²) */
   setPoiMaxSize(value) {
-    this.config.poiMaxSize = Math.max(5000, Math.min(100000, value));
+    this.config.poiMaxSize = Math.max(1000, Math.min(50000, value));
   }
 
   /** Установить макс. кол-во зон POI */

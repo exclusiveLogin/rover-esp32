@@ -393,8 +393,8 @@ newWidth = α × oldWidth + (1-α) × measuredWidth
 | `poiMinFrames` | 5 | 2..30 | Мин. кадров устойчивости для квалификации POI |
 | `poiMatchRadius` | 30 | 5..100 | Макс. расстояние (px) между центрами для сопоставления tracker ↔ region |
 | `poiPersistence` | 5 | 0..30 | Кол-во кадров удержания прицела после пропадания движения (fade-out) |
-| `poiMinSize` | 500 | 100..10k | Мин. площадь BB (px²) для квалификации |
-| `poiMaxSize` | 50000 | 5k..100k | Макс. площадь BB (px²) для квалификации |
+| `poiMinSize` | 500 | 50..5k | Мин. площадь BB (px²) для квалификации (совпадает с `minContourArea`) |
+| `poiMaxSize` | 50000 | 1k..50k | Макс. площадь BB (px²) для квалификации |
 | `poiMaxZones` | 3 | 1..3 | Макс. кол-во одновременных POI зон |
 | `poiNoiseThreshold` | 30 | 10..80 | Порог `motionPercent` (%), выше которого = режим "шум" |
 | `poiEmaPosition` | 70 | 50..90 | EMA коэфф. для позиции (% старого значения). Ниже = быстрее реакция |
@@ -541,8 +541,8 @@ new MotionDetector(videoElement, overlayCanvas, options)
 | `setPoiMinFrames(value)` | `void` | Мин. кадров устойчивости (2-30) |
 | `setPoiMatchRadius(value)` | `void` | Радиус сопоставления (5-100 px) |
 | `setPoiPersistence(value)` | `void` | Кадров удержания после пропадания (0-30) |
-| `setPoiMinSize(value)` | `void` | Мин. площадь BB для POI (100-10000 px²) |
-| `setPoiMaxSize(value)` | `void` | Макс. площадь BB для POI (5000-100000 px²) |
+| `setPoiMinSize(value)` | `void` | Мін. площадь BB для POI (50-5000 px²) |
+| `setPoiMaxSize(value)` | `void` | Макс. площадь BB для POI (1000-50000 px²) |
 | `setPoiMaxZones(value)` | `void` | Макс. зон POI (1-3) |
 | `setPoiNoiseThreshold(value)` | `void` | Порог шума motionPercent (10-80 %) |
 | `setPoiEmaPosition(value)` | `void` | EMA коэфф. позиции (50-90 %) |
