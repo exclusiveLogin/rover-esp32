@@ -740,8 +740,8 @@
 
   let expoCanvas = null;
   let expoCtx = null;
-  let currentExpoX = 0;  // Текущее значение expo X для перерисовки
-  let currentExpoY = 0;  // Текущее значение expo Y для перерисовки
+  let currentExpoX = (AppState.expoX || 0) / 100;  // Текущее значение expo X для перерисовки
+  let currentExpoY = (AppState.expoY || 0) / 100;  // Текущее значение expo Y для перерисовки
 
   /**
    * Инициализация настроек
@@ -795,6 +795,17 @@
     const labelEl = document.getElementById(`expo-label-${axis}`);
     
     if (!slider) return;
+
+    // Инициализация из AppState
+    const initValue = axis === 'x' ? AppState.expoX : AppState.expoY;
+    slider.value = initValue;
+    if (valueEl) valueEl.textContent = initValue;
+    if (labelEl) {
+      const prefix = axis === 'x' ? 'X: ' : 'Y: ';
+      if (initValue > 0) labelEl.textContent = prefix + initValue + '% мягк';
+      else if (initValue < 0) labelEl.textContent = prefix + initValue + '% резк';
+      else labelEl.textContent = prefix + '—';
+    }
 
     slider.addEventListener('input', () => {
       const value = parseInt(slider.value);

@@ -173,6 +173,7 @@
         this.layers[i].enabled = !!this._savedLayerEnabled[i];
       }
       delete this._savedLayerEnabled;
+      this._notify();
     },
 
     /** Есть ли несохранённые изменения относительно localStorage */
@@ -193,15 +194,17 @@
           if (this[k] !== savedVal && savedVal !== undefined) return true;
         }
 
-        // Сравниваем слои
-        var currentEnabled = this.layers.map(function (l) { return l.enabled; });
-        var savedEnabled = saved._layerEnabled;
-        // Обратная совместимость
-        if (!savedEnabled && saved.COMPOSITOR) savedEnabled = saved.COMPOSITOR.layerEnabled;
-        if (!savedEnabled) return currentEnabled.length > 0;
-        if (currentEnabled.length !== savedEnabled.length) return true;
-        for (var j = 0; j < currentEnabled.length; j++) {
-          if (currentEnabled[j] !== savedEnabled[j]) return true;
+        // Сравниваем слои (только если уже проинициализированы)
+        if (this.layers.length > 0) {
+          var currentEnabled = this.layers.map(function (l) { return l.enabled; });
+          var savedEnabled = saved._layerEnabled;
+          // Обратная совместимость
+          if (!savedEnabled && saved.COMPOSITOR) savedEnabled = saved.COMPOSITOR.layerEnabled;
+          if (!savedEnabled) return true;
+          if (currentEnabled.length !== savedEnabled.length) return true;
+          for (var j = 0; j < currentEnabled.length; j++) {
+            if (currentEnabled[j] !== savedEnabled[j]) return true;
+          }
         }
 
         return false;
