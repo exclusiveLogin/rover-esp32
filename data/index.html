@@ -35,43 +35,43 @@
         <!-- 🎬 Compositor Overlay (единый canvas для всех слоёв) -->
         <canvas id="compositor-overlay" class="compositor-overlay"></canvas>
         
-        <!-- 📊 OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
+        <!-- OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
         <div class="osd-overlay" id="osd-overlay">
           <!-- WiFi / RSSI -->
           <div class="osd-widget">
-            <span class="osd-icon">📶</span><span id="osd-rssi" class="osd-val">—</span><span class="osd-unit">dBm</span>
+            <span class="osd-icon">RSSI</span><span id="osd-rssi" class="osd-val">—</span><span class="osd-unit">dBm</span>
           </div>
           <!-- IP -->
           <div class="osd-widget">
-            <span class="osd-icon">📡</span><span id="osd-ip" class="osd-val">—</span>
+            <span class="osd-icon">IP</span><span id="osd-ip" class="osd-val">—</span>
           </div>
           <!-- Uptime -->
           <div class="osd-widget">
-            <span class="osd-icon">⏱</span><span id="osd-uptime" class="osd-val">—</span>
+            <span class="osd-icon">UP</span><span id="osd-uptime" class="osd-val">—</span>
           </div>
           <!-- Heap -->
           <div class="osd-widget">
-            <span class="osd-icon">🧠</span><span id="osd-heap" class="osd-val">—</span>
+            <span class="osd-icon">HEAP</span><span id="osd-heap" class="osd-val">—</span>
           </div>
           <!-- PSRAM -->
           <div class="osd-widget">
-            <span class="osd-icon">💾</span><span id="osd-psram" class="osd-val">—</span>
+            <span class="osd-icon">PSRAM</span><span id="osd-psram" class="osd-val">—</span>
           </div>
           <!-- CPU -->
           <div class="osd-widget">
-            <span class="osd-icon">⚡</span><span id="osd-cpu" class="osd-val">—</span><span class="osd-unit">MHz</span>
+            <span class="osd-icon">CPU</span><span id="osd-cpu" class="osd-val">—</span><span class="osd-unit">MHz</span>
           </div>
           <!-- Stream clients -->
           <div class="osd-widget">
-            <span class="osd-icon">👥</span><span id="osd-clients" class="osd-val">—</span>
+            <span class="osd-icon">CLI</span><span id="osd-clients" class="osd-val">—</span>
           </div>
           <!-- LED -->
           <div class="osd-widget">
-            <span class="osd-icon">💡</span><span id="osd-led" class="osd-val">—</span>
+            <span class="osd-icon">LED</span><span id="osd-led" class="osd-val">—</span>
           </div>
           <!-- Motion (скрыт по умолчанию) -->
           <div class="osd-widget osd-motion" id="osd-motion-widget" style="display: none;">
-            <span class="osd-icon">🔴</span><span id="osd-motion-percent" class="osd-val">0%</span>
+            <span class="osd-icon">MOT</span><span id="osd-motion-percent" class="osd-val">0%</span>
             <span class="osd-unit">|</span><span id="osd-motion-regions" class="osd-val">0</span><span class="osd-unit">reg</span>
           </div>
           <!-- Motors (компактно) -->
@@ -94,7 +94,7 @@
               <div class="joystick-rail vertical"></div>
             </div>
             <div class="joystick-label">
-              <span class="axis-icon">⬆⬇</span>
+              <span class="axis-icon">Y</span>
               <span class="axis-name">ГАЗ</span>
               <span class="axis-value" id="joy-y">0</span>
               <span class="axis-expo" id="expo-y">→0</span>
@@ -110,7 +110,7 @@
               <div class="joystick-rail horizontal"></div>
             </div>
             <div class="joystick-label">
-              <span class="axis-icon">⬅➡</span>
+              <span class="axis-icon">X</span>
               <span class="axis-name">РУЛЬ</span>
               <span class="axis-value" id="joy-x">0</span>
               <span class="axis-expo" id="expo-x">→0</span>
@@ -119,7 +119,7 @@
 
           <!-- Центральный индикатор состояния -->
           <div class="control-indicator">
-            <span id="joy-active">⚪</span>
+            <span id="joy-active">◯</span>
             <span id="control-status" class="control-status"></span>
           </div>
         </div>
@@ -130,22 +130,22 @@
           <span class="icon">▶</span> Стрим
         </button>
         <button id="webcam-btn" class="btn secondary" title="Использовать вебку устройства">
-          <span class="icon">🎥</span> Вебка
+          Вебка
         </button>
         <button id="photo-btn" class="btn secondary">
-          <span class="icon">📷</span> Фото
+          Фото
         </button>
         <button id="led-btn" class="btn led">
-          <span class="icon">💡</span> LED
+          LED
         </button>
         <button id="base-layer-btn" class="btn base-layer active" title="Базовый слой (видео)">
-          <span class="icon">🖼️</span> Base
+          Base
         </button>
         <button id="cv-btn" class="btn cv" title="Scene Analysis (OpenCV.js)">
-          <span class="icon">👁️</span> Scene
+          Scene
         </button>
         <button id="motion-btn" class="btn motion" title="Motion Detection">
-          <span class="icon">🔴</span> Motion
+          Motion
         </button>
       </div>
     </div>
@@ -164,7 +164,9 @@
 
     <!-- Настройки управления -->
     <div class="settings-panel">
-      <h2>⚙️ Настройки</h2>
+      <h2>Настройки</h2>
+      
+      <div class="param-section-header">Управление</div>
       
       <!-- Режим джойстиков -->
       <div class="setting-row">
@@ -184,6 +186,8 @@
           <span class="param-slider-value" id="joystick-scale-value">100%</span>
         </div>
       </div>
+
+      <div class="param-section-header">Expo кривая</div>
 
       <!-- Expo панель: слайдер Y | график | слайдер X -->
       <div class="expo-panel">
@@ -213,7 +217,9 @@
         </div>
       </div>
 
-      <!-- 🔧 Диапазон PWM: ГАЗ слева | подпись | РУЛЬ справа -->
+      <div class="param-section-header">Ограничения выхода</div>
+
+      <!-- Диапазон PWM: ГАЗ слева | подпись | РУЛЬ справа -->
       <div class="output-range-panel">
         <div class="output-axis output-axis-y">
           <span class="output-axis-title">ГАЗ (Y)</span>
@@ -254,13 +260,15 @@
       <!-- Сохранить настройки -->
       <div class="setting-row setting-save-row">
         <button type="button" id="settings-save-btn" class="btn btn-save-settings">
-          💾 Сохранить настройки
+          Сохранить настройки
         </button>
       </div>
 
-      <!-- 📊 OSD настройки -->
+      <div class="param-section-header">OSD</div>
+
+      <!-- OSD настройки -->
       <div class="setting-row">
-        <span class="setting-label">📊 OSD</span>
+        <span class="setting-label">OSD</span>
         <div class="toggle-switch">
           <button class="toggle-btn active" id="osd-toggle">ON</button>
         </div>
@@ -275,47 +283,48 @@
       </div>
 
       <!-- ═══════════════════════════════════════════════════════
-           👁️ SCENE (CVProcessor) — настройки + превью слоёв
+           SCENE (CVProcessor) — настройки + превью слоёв
            ═══════════════════════════════════════════════════════ -->
       <div class="processor-block" id="scene-settings-section" style="display: none;">
-        <h3 class="processor-block-title">👁️ Scene</h3>
+        <h3 class="processor-block-title">Scene</h3>
 
         <!-- Превью-плитки слоёв (6 слоёв Scene) -->
         <div class="layer-tiles" id="scene-layer-tiles">
           <div class="layer-tile" data-layer-idx="0">
             <canvas class="layer-tile-canvas" id="layer-preview-0" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="0" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="0" title="Solo">◉</button>
             <span class="layer-tile-label">Gray</span>
           </div>
           <div class="layer-tile" data-layer-idx="1">
             <canvas class="layer-tile-canvas" id="layer-preview-1" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="1" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="1" title="Solo">◉</button>
             <span class="layer-tile-label">Edges</span>
           </div>
           <div class="layer-tile" data-layer-idx="2">
             <canvas class="layer-tile-canvas" id="layer-preview-2" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="2" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="2" title="Solo">◉</button>
             <span class="layer-tile-label">Lines</span>
           </div>
           <div class="layer-tile" data-layer-idx="3">
             <canvas class="layer-tile-canvas" id="layer-preview-3" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="3" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="3" title="Solo">◉</button>
             <span class="layer-tile-label">Horizon</span>
           </div>
           <div class="layer-tile" data-layer-idx="4">
             <canvas class="layer-tile-canvas" id="layer-preview-4" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="4" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="4" title="Solo">◉</button>
             <span class="layer-tile-label">Grid</span>
           </div>
           <div class="layer-tile" data-layer-idx="5">
             <canvas class="layer-tile-canvas" id="layer-preview-5" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="5" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="5" title="Solo">◉</button>
             <span class="layer-tile-label">Walls</span>
           </div>
         </div>
 
         <!-- Scene параметры (слайдеры) -->
         <div class="processor-params">
+          <div class="param-section-header">Параметры обработки</div>
           <div class="setting-row">
             <span class="setting-label">Canny Low</span>
             <div class="param-slider-ctrl">
@@ -383,45 +392,46 @@
       </div>
 
       <!-- ═══════════════════════════════════════════════════════
-           🔴 MOTION (MotionDetector) — настройки + превью слоёв
+           MOTION (MotionDetector) — настройки + превью слоёв
            ═══════════════════════════════════════════════════════ -->
       <div class="processor-block" id="motion-settings-section" style="display: none;">
-        <h3 class="processor-block-title">🔴 Motion</h3>
+        <h3 class="processor-block-title">Motion</h3>
 
         <!-- Превью-плитки слоёв (3 слоя Motion) -->
         <div class="layer-tiles" id="motion-layer-tiles">
           <div class="layer-tile" data-layer-idx="6">
             <canvas class="layer-tile-canvas" id="layer-preview-6" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="6" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="6" title="Solo">◉</button>
             <span class="layer-tile-label">Mask</span>
           </div>
           <div class="layer-tile" data-layer-idx="7">
             <canvas class="layer-tile-canvas" id="layer-preview-7" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="7" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="7" title="Solo">◉</button>
             <span class="layer-tile-label">Contours</span>
           </div>
           <div class="layer-tile" data-layer-idx="8">
             <canvas class="layer-tile-canvas" id="layer-preview-8" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="8" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="8" title="Solo">◉</button>
             <span class="layer-tile-label">BB</span>
           </div>
           <div class="layer-tile" data-layer-idx="9">
             <canvas class="layer-tile-canvas" id="layer-preview-9" width="120" height="90"></canvas>
-            <button class="layer-eye-btn" data-layer-idx="9" title="Solo">👁</button>
+            <button class="layer-eye-btn" data-layer-idx="9" title="Solo">◉</button>
             <span class="layer-tile-label">POI</span>
           </div>
         </div>
 
         <!-- Десатурация + OSD -->
         <div class="processor-params">
+          <div class="param-section-header">Визуализация</div>
           <div class="setting-row">
-            <span class="setting-label">🌫️ Десатурация</span>
+            <span class="setting-label">Десатурация</span>
             <div class="toggle-switch">
               <button class="toggle-btn" id="motion-desaturate-toggle">OFF</button>
             </div>
           </div>
           <div class="setting-row">
-            <span class="setting-label">📊 OSD Motion</span>
+            <span class="setting-label">OSD Motion</span>
             <div class="toggle-switch">
               <button class="toggle-btn active" id="motion-osd-toggle">ON</button>
             </div>
@@ -430,6 +440,7 @@
 
         <!-- Motion параметры (слайдеры) -->
         <div class="processor-params">
+          <div class="param-section-header">Детекция движения</div>
           <div class="setting-row">
             <span class="setting-label">Порог</span>
             <div class="param-slider-ctrl">
@@ -466,7 +477,7 @@
 
         <!-- POI Tracking параметры -->
         <div class="processor-params">
-          <h4 style="margin: 0 0 8px 0; font-size: 13px; opacity: 0.8;">POI Tracking</h4>
+          <div class="param-section-header">POI Tracking</div>
           <div style="display: flex; gap: 12px; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 200px;">
           <div class="setting-row">
@@ -551,7 +562,7 @@
 
     <!-- Управление моторами -->
     <div class="drive-panel">
-      <h2>🚗 Управление моторами</h2>
+      <h2>Управление моторами</h2>
       
       <div class="motors-grid">
         <!-- Front Left -->

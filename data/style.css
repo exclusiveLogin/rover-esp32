@@ -846,6 +846,18 @@ main {
   padding: 4px 0;
 }
 
+/* Заголовок подсекции параметров */
+.param-section-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding: 8px 0 8px 0;
+  margin: 16px 0 12px 0;
+  border-bottom: 1px solid var(--bg-tertiary);
+}
+
 .param-slider-ctrl {
   display: flex;
   align-items: center;
