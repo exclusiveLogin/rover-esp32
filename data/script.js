@@ -16,8 +16,9 @@
   const streamUrlDisplay = document.getElementById('stream-url');
   const streamStatusDisplay = document.getElementById('stream-status');
 
-  // === Конфигурация (из AppConfig) ===
-  const streamUrl = window.AppConfig.getStreamUrl();
+  // === Конфигурация (из AppState) ===
+  const AppState = window.AppState;
+  const streamUrl = AppState.getStreamUrl();
 
   // === Состояние ===
   let isStreaming = false;
@@ -100,7 +101,7 @@
         videoFeed.crossOrigin = 'anonymous';
         videoFeed.src = streamUrl + '?t=' + Date.now();
       }
-    }, window.AppConfig.UI.reconnectDelay);
+    }, AppState.UI.reconnectDelay);
   }
 
   function clearReconnectTimer() {
@@ -190,7 +191,7 @@
 
   // === ФОТО ===
   function takePhoto() {
-    const photoUrl = window.AppConfig.getApiUrl(window.AppConfig.PHOTO_API) + '?t=' + Date.now();
+    const photoUrl = AppState.getApiUrl(AppState.PHOTO_API) + '?t=' + Date.now();
     
     // Временно останавливаем стрим, показываем фото
     const wasStreaming = isStreaming;
@@ -210,7 +211,7 @@
 
   // === LED ===
   function fetchLedState() {
-    fetch(window.AppConfig.getApiUrl(window.AppConfig.LED_API))
+    fetch(AppState.getApiUrl(AppState.LED_API))
       .then(r => r.json())
       .then(data => {
         ledState = data.state || false;
@@ -220,7 +221,7 @@
   }
 
   function toggleLed() {
-    fetch(window.AppConfig.getApiUrl(window.AppConfig.LED_API + '/toggle'), { method: 'POST' })
+    fetch(AppState.getApiUrl(AppState.LED_API + '/toggle'), { method: 'POST' })
       .then(r => r.json())
       .then(data => {
         ledState = data.state || false;
@@ -269,14 +270,14 @@
   const STEP_VALUE = 25;  // Шаг изменения скорости
 
   function fetchDriveState() {
-    fetch(window.AppConfig.getApiUrl(window.AppConfig.DRIVE_API))
+    fetch(AppState.getApiUrl(AppState.DRIVE_API))
       .then(r => r.json())
       .then(updateDriveUI)
       .catch(err => console.error('Drive API error:', err));
   }
 
   function sendDriveCommand(action, motor, value = STEP_VALUE) {
-    fetch(window.AppConfig.getApiUrl(window.AppConfig.DRIVE_API), {
+    fetch(AppState.getApiUrl(AppState.DRIVE_API), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, motor, value })
@@ -379,8 +380,19 @@
 
     // === Создаём ControlService ===
     controlService = new ControlService(
-      window.AppConfig.getApiUrl(window.AppConfig.CONTROL_API),
-      window.AppConfig.CONTROL
+      AppState.getApiUrl(AppState.CONTROL_API),
+      {
+        tickIntervalMs: AppState.tickIntervalMs,
+        throttleMs: AppState.throttleMs,
+        deadzone: AppState.deadzone,
+        maxValue: AppState.maxValue,
+        expoX: AppState.expoX,
+        expoY: AppState.expoY,
+        outputMinX: AppState.outputMinX,
+        outputMaxX: AppState.outputMaxX,
+        outputMinY: AppState.outputMinY,
+        outputMaxY: AppState.outputMaxY,
+      }
     );
 
     // Подписки
@@ -718,7 +730,7 @@
           statusEl.textContent = '';
           statusEl.classList.remove('error');
         }
-      }, window.AppConfig.UI.errorDisplayTime);
+      }, AppState.UI.errorDisplayTime);
     }
   }
 
@@ -803,11 +815,10 @@
       }
 
       // Применяем к ControlService
-      if (controlService) {
-        controlService.setExpo(axis, value);
-      }
+      if (controlService) controlService.setExpo(axis, value);
 
-      // Перерисовываем график
+      // Стейт + перерисовка
+      AppState.set(axis === 'x' ? 'expoX' : 'expoY', value);
       redrawExpoGraph();
     });
   }
@@ -828,16 +839,17 @@
 
     const cfgKey = axis === 'x' ? 'outputMinX' : 'outputMinY';
     const cfgKeyMax = axis === 'x' ? 'outputMaxX' : 'outputMaxY';
-    const cfg = window.AppConfig.CONTROL;
 
-    if (minSlider && cfg[cfgKey] !== undefined) {
-      minSlider.value = cfg[cfgKey];
-      if (minVal) minVal.textContent = cfg[cfgKey];
+    if (minSlider) {
+      minSlider.value = AppState[cfgKey];
+      if (minVal) minVal.textContent = AppState[cfgKey];
     }
-    if (maxSlider && cfg[cfgKeyMax] !== undefined) {
-      maxSlider.value = cfg[cfgKeyMax];
-      if (maxVal) maxVal.textContent = cfg[cfgKeyMax];
+    if (maxSlider) {
+      maxSlider.value = AppState[cfgKeyMax];
+      if (maxVal) maxVal.textContent = AppState[cfgKeyMax];
     }
+
+    const axisUpper = axis.toUpperCase();
 
     if (minSlider) {
       minSlider.addEventListener('input', () => {
@@ -846,6 +858,7 @@
         if (min >= max) { min = max - 5; minSlider.value = min; }
         if (minVal) minVal.textContent = min;
         if (controlService) controlService.setOutputRange(axis, min, max);
+        AppState.set('outputMin' + axisUpper, min);
       });
     }
 
@@ -856,6 +869,7 @@
         if (max <= min) { max = min + 5; maxSlider.value = max; }
         if (maxVal) maxVal.textContent = max;
         if (controlService) controlService.setOutputRange(axis, min, max);
+        AppState.set('outputMax' + axisUpper, max);
       });
     }
   }
@@ -868,14 +882,13 @@
     const valueEl = document.getElementById('joystick-scale-value');
     if (!slider) return;
 
-    const scale = Math.round(Number(window.AppConfig.JOYSTICK.scale) || 100);
-    slider.value = scale;
-    if (valueEl) valueEl.textContent = scale + '%';
+    slider.value = AppState.joystickScale;
+    if (valueEl) valueEl.textContent = AppState.joystickScale + '%';
     applyJoystickScale();
 
     slider.addEventListener('input', () => {
       const v = parseInt(slider.value);
-      window.AppConfig.JOYSTICK.scale = v;
+      AppState.set('joystickScale', v);
       if (valueEl) valueEl.textContent = v + '%';
       applyJoystickScale();
     });
@@ -885,7 +898,7 @@
    * Применить масштаб стиков к DOM и пересчитать радиус
    */
   function applyJoystickScale() {
-    const scale = (Number(window.AppConfig.JOYSTICK.scale) || 100) / 100;
+    const scale = (AppState.joystickScale || 100) / 100;
     document.querySelectorAll('.joystick-area').forEach(el => {
       el.style.transform = `scale(${scale})`;
       el.style.transformOrigin = 'center center';
@@ -895,31 +908,22 @@
   }
 
   /**
-   * Кнопка «Сохранить настройки» — пишем UI в AppConfig и сохраняем в localStorage
+   * Кнопка «Сохранить настройки»
    */
   function setupSaveSettingsButton() {
     const btn = document.getElementById('settings-save-btn');
     if (!btn) return;
 
+    // Подписка: видимость кнопки реагирует на ЛЮБОЕ изменение стейта
+    AppState.subscribe(updateSaveButtonVisibility);
+    updateSaveButtonVisibility();  // начальное состояние
+
     btn.addEventListener('click', () => {
-      // Синхронизируем CONTROL из controlService (expo + output range уже там)
-      if (controlService) {
-        const cfg = controlService.config;
-        Object.assign(window.AppConfig.CONTROL, {
-          deadzone: cfg.deadzone,
-          expoX: cfg.expoX,
-          expoY: cfg.expoY,
-          outputMinX: cfg.outputMinX,
-          outputMaxX: cfg.outputMaxX,
-          outputMinY: cfg.outputMinY,
-          outputMaxY: cfg.outputMaxY,
-        });
-      }
-      // JOYSTICK.scale уже обновляется слайдером
-      window.AppConfig.save();
+      AppState.save();
 
       btn.textContent = '✓ Сохранено';
       btn.classList.add('saved');
+      updateSaveButtonVisibility();  // localStorage обновился
       setTimeout(() => {
         btn.textContent = '💾 Сохранить настройки';
         btn.classList.remove('saved');
@@ -1083,20 +1087,13 @@
   }
 
   // ============================================================
-  // 🧩 APP STATE — единый стейт (SSOT)
+  // 🧩 APP STATE — инициализация runtime-свойств
   // ============================================================
 
-  const AppState = {
-    processors: {
-      scene:  { enabled: false, instance: null, count: CVProcessor.LAYER_COUNT },
-      motion: { enabled: false, instance: null, count: MotionDetector.LAYER_COUNT }
-    },
-    layers: [],  // заполняется в initLayers()
-
-    // UI-флаги (инициализируются из AppConfig в initLayers)
-    baseLayer: true,          // базовый слой (видео) виден
-    motionDesaturate: false,
-    motionOsd: true,
+  // AppState определён в state.js, здесь добавляем runtime
+  AppState.processors = {
+    scene:  { enabled: false, instance: null, count: CVProcessor.LAYER_COUNT },
+    motion: { enabled: false, instance: null, count: MotionDetector.LAYER_COUNT },
   };
 
   let compositor = null;
@@ -1104,15 +1101,14 @@
 
   /** Инициализация массива layers (один раз) */
   function initLayers() {
-    const cfg = window.AppConfig;
     const layers = [];
 
     // Scene: 6 слоёв (localIndex 0..5)
     const sceneLabels = ['Gray', 'Edges', 'Lines', 'Horizon', 'Grid', 'Walls'];
     const sceneDefaults = [false, false, false,
-      cfg.CV.showHorizon !== false,
-      cfg.CV.showGrid !== false,
-      cfg.CV.showWalls !== false
+      AppState.CV.showHorizon !== false,
+      AppState.CV.showGrid !== false,
+      AppState.CV.showWalls !== false
     ];
     for (let i = 0; i < AppState.processors.scene.count; i++) {
       layers.push({
@@ -1126,9 +1122,9 @@
     // Motion: 3 слоя (localIndex 0..2)
     const motionLabels = ['Mask', 'Contours', 'BB'];
     const motionDefaults = [
-      cfg.MOTION.showPixels !== false,
-      cfg.MOTION.showContours === true,
-      cfg.MOTION.showBoxes !== false
+      AppState.MOTION.showPixels !== false,
+      AppState.MOTION.showContours === true,
+      AppState.MOTION.showBoxes !== false
     ];
     for (let i = 0; i < AppState.processors.motion.count; i++) {
       layers.push({
@@ -1141,10 +1137,18 @@
 
     AppState.layers = layers;
 
-    // UI-флаги из конфига
-    AppState.baseLayer = cfg.BASE_LAYER ? cfg.BASE_LAYER.visible !== false : true;
-    AppState.motionDesaturate = cfg.MOTION.showDesaturate === true;
-    AppState.motionOsd = cfg.MOTION.showOSD !== false;
+    // Восстановление сохранённых enabled-флагов (из load())
+    AppState.applySavedLayerEnabled();
+  }
+
+  /** Показать/скрыть кнопку «Сохранить настройки» по наличию изменений */
+  function updateSaveButtonVisibility() {
+    const row = document.querySelector('.setting-save-row');
+    const btn = document.getElementById('settings-save-btn');
+    if (!row && !btn) return;
+    const show = AppState.hasUnsavedChanges();
+    if (row) row.style.display = show ? '' : 'none';
+    if (btn) btn.style.display = show ? '' : 'none';
   }
 
   // ============================================================
@@ -1202,7 +1206,7 @@
   }
 
   function toggleBaseLayer() {
-    AppState.baseLayer = !AppState.baseLayer;
+    AppState.set('baseLayer', !AppState.baseLayer);
     applyBaseLayer();
 
     const btn = document.getElementById('base-layer-btn');
@@ -1258,7 +1262,7 @@
       if (!slider) continue;
 
       // Установить начальные значения из конфига
-      const cfgVal = window.AppConfig.CV[s.key];
+      const cfgVal = AppState.CV[s.key];
       if (cfgVal !== undefined) {
         slider.value = cfgVal;
         if (valEl) valEl.textContent = cfgVal;
@@ -1294,7 +1298,7 @@
 
     if (!proc.instance) {
       proc.instance = new CVProcessor(activeVideo, {
-        ...window.AppConfig.CV,
+        ...AppState.CV,
         onError: (err) => console.error('Scene error:', err)
       });
     }
@@ -1350,7 +1354,7 @@
       desatToggle.textContent = AppState.motionDesaturate ? 'ON' : 'OFF';
 
       desatToggle.addEventListener('click', () => {
-        AppState.motionDesaturate = !AppState.motionDesaturate;
+        AppState.set('motionDesaturate', !AppState.motionDesaturate);
         desatToggle.classList.toggle('active', AppState.motionDesaturate);
         desatToggle.textContent = AppState.motionDesaturate ? 'ON' : 'OFF';
         applyDesaturation(AppState.motionDesaturate);
@@ -1365,7 +1369,7 @@
       osdToggle.textContent = AppState.motionOsd ? 'ON' : 'OFF';
 
       osdToggle.addEventListener('click', () => {
-        AppState.motionOsd = !AppState.motionOsd;
+        AppState.set('motionOsd', !AppState.motionOsd);
         osdToggle.classList.toggle('active', AppState.motionOsd);
         osdToggle.textContent = AppState.motionOsd ? 'ON' : 'OFF';
         const widget = document.getElementById('osd-motion-widget');
@@ -1374,12 +1378,12 @@
       });
     }
 
-    // Слайдеры Motion
+    // Слайдеры Motion (с persist через AppState.set)
     const motionSliders = [
-      { id: 'motion-threshold-slider', valId: 'motion-threshold-value', method: 'setThreshold' },
-      { id: 'motion-minarea-slider',   valId: 'motion-minarea-value',   method: 'setMinArea' },
-      { id: 'motion-blur-slider',      valId: 'motion-blur-value',      method: 'setBlurSize' },
-      { id: 'motion-dilate-slider',    valId: 'motion-dilate-value',    method: 'setDilateIterations' },
+      { id: 'motion-threshold-slider', valId: 'motion-threshold-value', method: 'setThreshold', stateKey: 'motionThreshold' },
+      { id: 'motion-minarea-slider',   valId: 'motion-minarea-value',   method: 'setMinArea',   stateKey: 'motionMinArea' },
+      { id: 'motion-blur-slider',      valId: 'motion-blur-value',      method: 'setBlurSize',  stateKey: 'motionBlur' },
+      { id: 'motion-dilate-slider',    valId: 'motion-dilate-value',    method: 'setDilateIterations', stateKey: 'motionDilate' },
     ];
 
     for (const s of motionSliders) {
@@ -1387,9 +1391,14 @@
       const valEl = document.getElementById(s.valId);
       if (!slider) continue;
 
+      // Начальные значения из AppState
+      slider.value = AppState[s.stateKey];
+      if (valEl) valEl.textContent = AppState[s.stateKey];
+
       slider.addEventListener('input', () => {
         const val = parseInt(slider.value);
         if (valEl) valEl.textContent = val;
+        AppState.set(s.stateKey, val);
         const proc = AppState.processors.motion.instance;
         if (proc && typeof proc[s.method] === 'function') {
           proc[s.method](val);
@@ -1419,7 +1428,11 @@
 
     if (!proc.instance) {
       proc.instance = new MotionDetector(activeVideo, {
-        ...window.AppConfig.MOTION,
+        ...AppState.MOTION,
+        threshold: AppState.motionThreshold,
+        minContourArea: AppState.motionMinArea,
+        dilateIterations: AppState.motionDilate,
+        blurSize: AppState.motionBlur,
         onMotion: (result) => updateMotionOSD(result),
         onError: (err) => console.error('Motion error:', err)
       });
@@ -1511,7 +1524,7 @@
         const idx = parseInt(tile.dataset.layerIdx);
         if (isNaN(idx) || idx >= AppState.layers.length) return;
 
-        AppState.layers[idx].enabled = !AppState.layers[idx].enabled;
+        AppState.toggleLayer(idx);
         updateLayerTileUI();
       });
     });
@@ -1523,9 +1536,7 @@
         const idx = parseInt(btn.dataset.layerIdx);
         if (isNaN(idx) || idx >= AppState.layers.length) return;
 
-        // Solo: всем false, этому true
-        AppState.layers.forEach(l => l.enabled = false);
-        AppState.layers[idx].enabled = true;
+        AppState.soloLayer(idx);
         updateLayerTileUI();
       });
     });
@@ -1537,7 +1548,7 @@
     const enabledCount = layers.filter(l => l.enabled).length;
     const isSolo = enabledCount === 1;
 
-    const cfg = window.AppConfig.LAYERS || {};
+    const cfg = AppState.LAYERS || {};
     const colorActive = cfg.borderActive || '#4CAF50';
     const colorSolo   = cfg.borderSolo   || '#FFC107';
     const colorOff    = cfg.borderOff    || 'rgba(255,255,255,0.15)';
@@ -1586,8 +1597,8 @@
     const overlay = document.getElementById('osd-overlay');
 
     // Читаем конфиг
-    osdEnabled = window.AppConfig.OSD ? window.AppConfig.OSD.enabled : true;
-    osdIntervalMs = window.AppConfig.OSD ? window.AppConfig.OSD.pollIntervalSec * 1000 : 5000;
+    osdEnabled = AppState.OSD ? AppState.OSD.enabled : true;
+    osdIntervalMs = AppState.OSD ? AppState.OSD.pollIntervalSec * 1000 : 5000;
 
     // Тогглер ON/OFF
     if (toggle) {
@@ -1666,8 +1677,8 @@
   function osdFetchStatus() {
     if (!osdEnabled) return;
 
-    const url = window.AppConfig.getApiUrl(
-      window.AppConfig.STATUS_API || '/api/status'
+    const url = AppState.getApiUrl(
+      AppState.STATUS_API || '/api/status'
     );
 
     fetch(url)
