@@ -101,16 +101,12 @@
             </div>
           </div>
 
-          <!-- Servo Pan (между джойстиками) -->
+          <!-- Servo Pan (между джойстиками) — растянут на всю ширину -->
           <div class="servo-pan-wrapper">
             <span class="servo-label">PAN</span>
             <input type="range" id="servo-pan-slider" class="servo-slider"
                    min="0" max="180" value="90" step="1">
             <span class="servo-value" id="servo-pan-value">90°</span>
-            <span class="servo-speed-label">Скорость</span>
-            <input type="range" id="servo-speed-slider" class="servo-speed-slider"
-                   min="30" max="200" value="80" step="10">
-            <span class="servo-speed-value" id="servo-speed-value">80ms</span>
           </div>
 
           <!-- Правый джойстик — РУЛЬ (только X) -->
@@ -196,6 +192,16 @@
           <input type="range" id="joystick-scale-slider" class="param-slider"
                  min="25" max="175" value="100" step="5">
           <span class="param-slider-value" id="joystick-scale-value">100%</span>
+        </div>
+      </div>
+
+      <!-- Скорость сервы PAN (30..3000мс) -->
+      <div class="setting-row">
+        <span class="setting-label">Скорость PAN</span>
+        <div class="param-slider-ctrl">
+          <input type="range" id="servo-speed-slider" class="param-slider"
+                 min="30" max="3000" value="80" step="10">
+          <span class="param-slider-value" id="servo-speed-value">80ms</span>
         </div>
       </div>
 

@@ -792,13 +792,19 @@
   function initServoPan() {
     const panSlider = document.getElementById('servo-pan-slider');
     const panValue = document.getElementById('servo-pan-value');
-    const speedSlider = document.getElementById('servo-speed-slider');
+    const speedSlider = document.getElementById('servo-speed-slider');  // Теперь в settings
     const speedValue = document.getElementById('servo-speed-value');
 
     if (!panSlider) return;
 
     let servoThrottleTimer = null;
     let servoLastSendTime = 0;
+
+    /** Получить текущую скорость из settings-слайдера или AppState */
+    function getServoSpeed() {
+      if (speedSlider) return parseInt(speedSlider.value);
+      return AppState.servoPanSpeed || 80;
+    }
 
     /** Отправить контракт { deg, speed } на контроллер */
     function sendServoContract(deg, speed) {
@@ -813,8 +819,8 @@
     /** Обработчик слайдера: throttle, затем отправка контракта */
     function onPanInput() {
       const deg = 180 - parseInt(panSlider.value);  // Инверсия: слайдер влево = серва вправо (от камеры)
-      const speed = parseInt(speedSlider ? speedSlider.value : 80);
-      if (panValue) panValue.textContent = deg + '°';  // deg уже инвертирован
+      const speed = getServoSpeed();
+      if (panValue) panValue.textContent = deg + '°';
 
       const THROTTLE_MS = 80;
       const now = Date.now();
@@ -831,7 +837,7 @@
         // Иначе — отложенная отправка
         const remaining = THROTTLE_MS - (now - servoLastSendTime);
         servoThrottleTimer = setTimeout(() => {
-          sendServoContract(180 - parseInt(panSlider.value), parseInt(speedSlider?.value || 80));
+          sendServoContract(180 - parseInt(panSlider.value), getServoSpeed());
           servoLastSendTime = Date.now();
           servoThrottleTimer = null;
         }, remaining);
@@ -840,17 +846,18 @@
 
     panSlider.addEventListener('input', onPanInput);
 
+    // Speed-слайдер теперь в настройках
     if (speedSlider) {
       speedSlider.value = (AppState.servoPanSpeed !== undefined ? AppState.servoPanSpeed : 80);
-      if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'ms';
+      if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'мс';
       speedSlider.addEventListener('input', () => {
-        if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'ms';
+        if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'мс';
         AppState.set('servoPanSpeed', parseInt(speedSlider.value));
       });
     }
 
     if (panValue) panValue.textContent = (180 - (panSlider.value | 0)) + '°';
-    sendServoContract(180 - parseInt(panSlider.value), parseInt(speedSlider?.value || 80));
+    sendServoContract(180 - parseInt(panSlider.value), getServoSpeed());
 
     console.log('🔄 Servo Pan initialized (contract → controller)');
   }

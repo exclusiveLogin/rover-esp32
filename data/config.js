@@ -69,7 +69,7 @@ window.AppDefaults = {
   joystickDefaultRadius: 120,
   joystickStickSize: 50,
   joystickScale: 100,         // Масштаб стиков, % (25..175)
-  servoPanSpeed: 80,          // Throttle отправки сервы (мс, 30..200)
+  servoPanSpeed: 80,          // Скорость поворота сервы PAN (мс, 30..3000)
 
   // ═══════════════════════════════════════════════════════════
   // 🔍 Motion Detection — параметры (мутабельный, персистится)
