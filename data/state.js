@@ -26,6 +26,7 @@
     'expoX', 'expoY',
     'outputMinX', 'outputMaxX', 'outputMinY', 'outputMaxY',
     'deadzone', 'joystickScale',
+    'servoPanSpeed',
     // Motion params
     'motionThreshold', 'motionMinArea', 'motionDilate', 'motionBlur',
     // POI params

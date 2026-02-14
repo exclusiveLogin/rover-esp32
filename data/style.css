@@ -1258,6 +1258,61 @@ main {
   min-width: 40px;
 }
 
+/* Servo Pan (между джойстиками) */
+.servo-pan-wrapper {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius);
+  backdrop-filter: blur(4px);
+  align-self: flex-end;
+}
+
+.servo-pan-wrapper .servo-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.servo-pan-wrapper .servo-slider {
+  width: 80px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  accent-color: var(--accent);
+}
+
+.servo-pan-wrapper .servo-value {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.servo-pan-wrapper .servo-speed-label {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.servo-pan-wrapper .servo-speed-slider {
+  width: 60px;
+  height: 4px;
+  accent-color: var(--text-secondary);
+}
+
+.servo-pan-wrapper .servo-speed-value {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+}
+
 /* Центральный индикатор состояния */
 .control-indicator {
     position: absolute;

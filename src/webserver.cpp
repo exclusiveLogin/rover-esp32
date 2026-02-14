@@ -38,6 +38,7 @@
 #include "camera.h"
 #include "drive.h"
 #include "control.h"
+#include "servo.h"
 #include <esp_http_server.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
@@ -622,6 +623,74 @@ static esp_err_t statusApiHandler(httpd_req_t* req) {
 }
 
 // ============================================================
+// Servo API — GET/POST /api/servo
+// ============================================================
+//
+// GET  /api/servo — вернуть {"angle": 90}
+//
+// POST /api/servo — контракт { "deg": 90, "speed": 80 }
+//   deg   — целевой угол 0–180°
+//   speed — время достижения (мс), default 80. Интерполяция на контроллере.
+//
+// ============================================================
+
+static esp_err_t servoApiHandler(httpd_req_t* req) {
+    // CORS preflight
+    if (req->method == HTTP_OPTIONS) {
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+        httpd_resp_send(req, NULL, 0);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+
+    // GET — текущий угол
+    if (req->method == HTTP_GET) {
+        char json[64];
+        snprintf(json, sizeof(json), "{\"angle\":%d}", servoGetAngle());
+        return httpd_resp_send(req, json, strlen(json));
+    }
+
+    if (req->method != HTTP_POST) {
+        httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+        return ESP_FAIL;
+    }
+
+    char body[128];
+    int len = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    body[len] = '\0';
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    // deg — целевой угол 0–180°
+    int deg = doc["deg"] | 90;
+    if (deg < 0) deg = 0;
+    if (deg > 180) deg = 180;
+
+    // speed — время достижения (мс). Интерполяция в servoUpdate()
+    uint16_t speed = doc["speed"] | 80;
+    if (speed <= 0) speed = 1;
+
+    servoSetTarget((uint8_t)deg, speed);
+
+    char json[64];
+    snprintf(json, sizeof(json), "{\"angle\":%d}", servoGetAngle());
+    return httpd_resp_send(req, json, strlen(json));
+}
+
+// ============================================================
 // 🚀 Запуск серверов
 // ============================================================
 
@@ -637,7 +706,7 @@ void webserverStartMain() {
     config.server_port = HTTP_PORT_MAIN;
     config.ctrl_port = 32768;        // Порт управления httpd (внутренний)
     config.max_open_sockets = 5;     // Макс. одновременных HTTP-соединений
-    config.max_uri_handlers = 24;    // Макс. зарегистрированных маршрутов
+    config.max_uri_handlers = 27;    // Макс. зарегистрированных маршрутов
     config.lru_purge_enable = true;  // Автоочистка старых соединений
 
     if (httpd_start(&mainHttpd, &config) != ESP_OK) {
@@ -686,6 +755,11 @@ void webserverStartMain() {
     
     // API — /api/status (телеметрия для OSD)
     httpd_uri_t uriStatus     = {"/api/status",  HTTP_GET,  statusApiHandler,  NULL};
+
+    // API — /api/servo (pan, SG90)
+    httpd_uri_t uriServoGet   = {"/api/servo",   HTTP_GET,   servoApiHandler,   NULL};
+    httpd_uri_t uriServoPost  = {"/api/servo",   HTTP_POST,  servoApiHandler,   NULL};
+    httpd_uri_t uriServoOpts  = {"/api/servo",   HTTP_OPTIONS, servoApiHandler, NULL};
     
     httpd_register_uri_handler(mainHttpd, &uriPhoto);
     httpd_register_uri_handler(mainHttpd, &uriLedGet);
@@ -697,11 +771,15 @@ void webserverStartMain() {
     httpd_register_uri_handler(mainHttpd, &uriCtrlPost);
     httpd_register_uri_handler(mainHttpd, &uriCtrlOpts);
     httpd_register_uri_handler(mainHttpd, &uriStatus);
+    httpd_register_uri_handler(mainHttpd, &uriServoGet);
+    httpd_register_uri_handler(mainHttpd, &uriServoPost);
+    httpd_register_uri_handler(mainHttpd, &uriServoOpts);
 
     Serial.printf("🌐 Основной сервер на порту %d, Core %d\n", HTTP_PORT_MAIN, xPortGetCoreID());
     Serial.println("   📡 /api/drive   — отладка (без таймаута)");
     Serial.println("   🎮 /api/control — управление (с watchdog)");
     Serial.println("   📊 /api/status  — телеметрия (OSD)");
+    Serial.println("   🔄 /api/servo   — pan (SG90)");
 }
 
 /**

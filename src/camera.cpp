@@ -71,6 +71,8 @@ bool cameraInit() {
     config.frame_size   = FRAMESIZE_VGA;  // 640x480 — баланс качества и скорости
     config.jpeg_quality = 12;             // Качество JPEG (0-63, меньше = лучше)
     config.fb_count     = 2;              // Двойной буфер для непрерывного стрима
+    config.fb_location  = CAMERA_FB_IN_PSRAM;  // Буферы в PSRAM (экономим ~60-100 КБ DRAM)
+    config.grab_mode    = CAMERA_GRAB_LATEST;  // Всегда свежий кадр (без задержки в очереди)
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {

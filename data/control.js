@@ -40,6 +40,10 @@ class ControlService {
     // Конфиг
     this.config = { ...ControlService.DEFAULTS, ...options, apiUrl };
 
+    // Нормализуем expo: UI хранит -100..+100, движок работает с -1..+1
+    if (this.config.expoX > 1 || this.config.expoX < -1) this.config.expoX /= 100;
+    if (this.config.expoY > 1 || this.config.expoY < -1) this.config.expoY /= 100;
+
     // === Состояние ===
     this.state = {
       // Текущие значения (от джойстика/кнопок) — сырые

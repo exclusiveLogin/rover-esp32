@@ -29,6 +29,7 @@
 #include "camera.h"
 #include "drive.h"
 #include "control.h"
+#include "servo.h"
 #include "webserver.h"
 
 void setup() {
@@ -42,6 +43,9 @@ void setup() {
     // PWM / моторы
     driveInit();
     Serial.println("✅ PWM инициализирован");
+
+    // Servo pan (SG90)
+    servoInit();
 
     // Модуль управления с watchdog
     controlInit();
@@ -76,7 +80,7 @@ void setup() {
     xTaskCreatePinnedToCore(
         streamServerTask,
         "StreamServer",
-        8192,
+        6144,  // Стек 6 КБ (достаточно для TCP send + partHeader[128])
         NULL,
         1,
         NULL,
@@ -92,6 +96,7 @@ void setup() {
     Serial.printf("🔧 Drive API:   http://%s/api/drive   (отладка)\n", WiFi.localIP().toString().c_str());
     Serial.printf("🎮 Control API: http://%s/api/control (с watchdog)\n", WiFi.localIP().toString().c_str());
     Serial.printf("📊 Status API:  http://%s/api/status  (телеметрия)\n", WiFi.localIP().toString().c_str());
+    Serial.printf("🔄 Servo API:   http://%s/api/servo   (pan)\n", WiFi.localIP().toString().c_str());
     Serial.println("========================================\n");
 }
 
@@ -101,6 +106,9 @@ void loop() {
     // Проверяет таймаут и останавливает моторы если нет команд
     // =========================================================
     controlUpdate();
+
+    // Servo: интерполяция к целевому углу (lerp по времени)
+    servoUpdate();
 
     // Демо движений (удалить при реальном управлении)
     // driveDemoUpdate();

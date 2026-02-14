@@ -42,6 +42,7 @@ window.AppDefaults = {
 
   CONTROL_API: '/api/control',
   DRIVE_API:   '/api/drive',
+  SERVO_API:   '/api/servo',
   PHOTO_API:   '/photo',
   LED_API:     '/led',
   STATUS_API:  '/api/status',
@@ -68,6 +69,7 @@ window.AppDefaults = {
   joystickDefaultRadius: 120,
   joystickStickSize: 50,
   joystickScale: 100,         // Масштаб стиков, % (25..175)
+  servoPanSpeed: 80,          // Throttle отправки сервы (мс, 30..200)
 
   // ═══════════════════════════════════════════════════════════
   // 🔍 Motion Detection — параметры (мутабельный, персистится)

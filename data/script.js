@@ -786,6 +786,76 @@
   }
 
   /**
+   * Инициализация Servo Pan (ползунок между джойстиками).
+   * Контракт: { deg, speed }. Интерполяция на контроллере (servoUpdate в loop).
+   */
+  function initServoPan() {
+    const panSlider = document.getElementById('servo-pan-slider');
+    const panValue = document.getElementById('servo-pan-value');
+    const speedSlider = document.getElementById('servo-speed-slider');
+    const speedValue = document.getElementById('servo-speed-value');
+
+    if (!panSlider) return;
+
+    let servoThrottleTimer = null;
+    let servoLastSendTime = 0;
+
+    /** Отправить контракт { deg, speed } на контроллер */
+    function sendServoContract(deg, speed) {
+      const url = AppState.getApiUrl(AppState.SERVO_API || '/api/servo');
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deg, speed })
+      }).catch(err => console.warn('Servo API error:', err.message));
+    }
+
+    /** Обработчик слайдера: throttle, затем отправка контракта */
+    function onPanInput() {
+      const deg = 180 - parseInt(panSlider.value);  // Инверсия: слайдер влево = серва вправо (от камеры)
+      const speed = parseInt(speedSlider ? speedSlider.value : 80);
+      if (panValue) panValue.textContent = deg + '°';  // deg уже инвертирован
+
+      const THROTTLE_MS = 80;
+      const now = Date.now();
+
+      // Достаточно времени прошло — отправляем сразу
+      if (now - servoLastSendTime >= THROTTLE_MS) {
+        sendServoContract(deg, speed);
+        servoLastSendTime = now;
+        if (servoThrottleTimer) {
+          clearTimeout(servoThrottleTimer);
+          servoThrottleTimer = null;
+        }
+      } else if (!servoThrottleTimer) {
+        // Иначе — отложенная отправка
+        const remaining = THROTTLE_MS - (now - servoLastSendTime);
+        servoThrottleTimer = setTimeout(() => {
+          sendServoContract(180 - parseInt(panSlider.value), parseInt(speedSlider?.value || 80));
+          servoLastSendTime = Date.now();
+          servoThrottleTimer = null;
+        }, remaining);
+      }
+    }
+
+    panSlider.addEventListener('input', onPanInput);
+
+    if (speedSlider) {
+      speedSlider.value = (AppState.servoPanSpeed !== undefined ? AppState.servoPanSpeed : 80);
+      if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'ms';
+      speedSlider.addEventListener('input', () => {
+        if (speedValue) speedValue.textContent = (speedSlider.value | 0) + 'ms';
+        AppState.set('servoPanSpeed', parseInt(speedSlider.value));
+      });
+    }
+
+    if (panValue) panValue.textContent = (180 - (panSlider.value | 0)) + '°';
+    sendServoContract(180 - parseInt(panSlider.value), parseInt(speedSlider?.value || 80));
+
+    console.log('🔄 Servo Pan initialized (contract → controller)');
+  }
+
+  /**
    * Настройка одного expo-слайдера
    * @param {'x'|'y'} axis
    */
@@ -1825,6 +1895,7 @@
     initDriveControls();
     initJoysticks();
     initSettings();
+    initServoPan();       // Servo Pan (между джойстиками)
     initLayers();         // SSOT: формируем массив layers + UI-флаги
     initBaseLayer();      // Base layer (видео) toggle
     initScene();          // Scene (бывший CV)
