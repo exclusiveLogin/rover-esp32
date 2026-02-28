@@ -1,15 +1,27 @@
 /**
  * ============================================================
- * 🧩 AppState — единый Store (SSOT)
+ * AppState — Единый Store (Single Source of Truth)
  * ============================================================
  *
- * Копирует дефолты из AppDefaults (config.js), добавляет:
- *   - Pub/Sub:     subscribe(fn), _notify()
- *   - Мутации:     set(key, value), toggleLayer(idx), soloLayer(idx)
- *   - Утилиты:     getStreamUrl(), getApiBase(), getApiUrl()
- *   - Persistence: save(), load(), reset(), hasUnsavedChanges()
+ * Центральное хранилище всего состояния приложения.
  *
- * Все мутации — только через методы. Подписчики уведомляются автоматически.
+ * Инициализация:
+ *   1. Копирует дефолты из AppDefaults (config.js)
+ *   2. Загружает сохранённые настройки из localStorage
+ *   3. Экспортирует как window.AppState
+ *
+ * Функциональность:
+ *   - Pub/Sub:       subscribe(key, fn), set(key, val), setMany({...})
+ *   - Антирекурсия:  если подписчик меняет стейт во время notify,
+ *                    изменения ставятся в очередь и обрабатываются после
+ *   - Персистентность: save() / load() / reset() через localStorage
+ *   - Миграция:       автоматически мигрирует старый вложенный конфиг
+ *                    в новый плоский формат
+ *
+ * Правило безопасности подписок:
+ *   Подписчик НЕ должен писать в ключи, на которые подписан.
+ *   Это гарантирует отсутствие бесконечной рекурсии.
+ *   Пример: ControlService подписан на controlX/Y, но пишет в controlError.
  *
  * ============================================================
  */
@@ -17,209 +29,346 @@
 (function () {
   'use strict';
 
-  // ── Ключи, которые персистятся в localStorage ────────────
+  // ── Ключи, которые сохраняются в localStorage ─────────────
+  // Остальные ключи (controlX, controlY и т.д.) — runtime-only
   const PERSIST_KEYS = [
     // Сетевые
     'ESP32_HOST', 'VIDEO_HOST', 'STREAM_PORT', 'STREAM_PATH',
     'USE_PROXY', 'EXTERNAL_STREAM_URL',
+    
     // Control
     'expoX', 'expoY',
     'outputMinX', 'outputMaxX', 'outputMinY', 'outputMaxY',
-    'deadzone', 'joystickScale',
+    'deadzone', 'joystickScale', 'joystickMode',
     'servoPanSpeed',
+    
     // Motion params
-    'motionThreshold', 'motionMinArea', 'motionDilate', 'motionBlur',
+    'motionEnabled', 'motionThreshold', 'motionMinArea', 'motionDilate', 'motionBlur',
+    
     // POI params
-    'poiMinFrames', 'poiMatchRadius', 'poiPersistence', 'poiMinSize', 'poiMaxSize', 'poiMaxZones', 'poiNoiseThreshold',
+    'poiMinFrames', 'poiMatchRadius', 'poiPersistence', 
+    'poiMinSize', 'poiMaxSize', 'poiMaxZones', 'poiNoiseThreshold',
     'poiEmaPosition', 'poiEmaSize',
-    // UI flags
+    
+    // Scene / CV params
+    'sceneEnabled', 'sceneProcessInterval',
+    'sceneCannyLow', 'sceneCannyHigh',
+    'sceneHoughThreshold', 'sceneHoughMinLength', 'sceneHoughMaxGap',
+    'sceneHorizonMaxAngle', 'sceneWallAngleTolerance',
+    'sceneClusterAngleTolerance', 'sceneMinClusterSegments', 'sceneSmoothFrames',
+    
+    // UI / OSD flags
     'baseLayer', 'motionDesaturate', 'motionOsd',
+    'osdEnabled', 'osdIntervalSec'
   ];
 
-  const LS_KEY = 'AppState';
+  const LS_KEY = 'AppState_v2';
 
-  // ── Создаём стор из дефолтов ─────────────────────────────
+  // ── Создаём store из дефолтов ─────────────────────────────
   const store = Object.assign({}, window.AppDefaults, {
 
-    // ── Runtime (заполняется в script.js) ────────────────
-    processors: null,
-    layers: [],
+    // Runtime state (не персистится, живёт только в сессии)
+    processors: null,  // Инстансы CV/Motion процессоров
+    layers: [],        // Слои для Compositor
 
-    // ── Pub/Sub ──────────────────────────────────────────
-    _subs: [],
+    // ── Pub/Sub ─────────────────────────────────────────────
+    _subs: new Map(),          // key → Set<callback>
+    _globalSubs: new Set(),    // подписчики на ВСЕ изменения
+    _isNotifying: false,       // флаг: сейчас внутри notify (защита от рекурсии)
+    _pendingKeys: new Set(),   // ключи, изменённые во время notify (очередь)
 
-    subscribe(fn) {
-      this._subs.push(fn);
+    /**
+     * Подписка на изменения.
+     *
+     * Варианты вызова:
+     *   subscribe('key', fn)            — один ключ
+     *   subscribe(['key1', 'key2'], fn) — несколько ключей
+     *   subscribe(fn)                   — глобальная (все изменения)
+     */
+    subscribe(keyOrFn, fn) {
+      if (typeof keyOrFn === 'function') {
+        this._globalSubs.add(keyOrFn);
+        return;
+      }
+      if (!fn) return;
+
+      const keys = Array.isArray(keyOrFn) ? keyOrFn : [keyOrFn];
+      keys.forEach(key => {
+        if (!this._subs.has(key)) {
+          this._subs.set(key, new Set());
+        }
+        this._subs.get(key).add(fn);
+      });
     },
 
-    _notify() {
-      for (let i = 0; i < this._subs.length; i++) {
-        this._subs[i]();
+    /**
+     * Отписать функцию от всех ключей.
+     */
+    unsubscribe(fn) {
+      this._globalSubs.delete(fn);
+      this._subs.forEach(set => set.delete(fn));
+    },
+
+    /**
+     * Уведомить подписчиков об изменении ключей.
+     *
+     * Защита от рекурсии:
+     *   Если подписчик вызывает set() во время notify,
+     *   изменённые ключи добавляются в _pendingKeys
+     *   и обрабатываются ПОСЛЕ текущего цикла notify.
+     */
+    _notify(changedKeys) {
+      if (changedKeys.length === 0) return;
+
+      if (this._isNotifying) {
+        changedKeys.forEach(k => this._pendingKeys.add(k));
+        return;
+      }
+
+      this._isNotifying = true;
+
+      try {
+        // Собираем уникальный набор подписчиков для изменённых ключей
+        const listenersToCall = new Set(this._globalSubs);
+        changedKeys.forEach(key => {
+          const keySubs = this._subs.get(key);
+          if (keySubs) keySubs.forEach(fn => listenersToCall.add(fn));
+        });
+
+        // Вызываем каждого подписчика, передавая store как аргумент
+        listenersToCall.forEach(fn => {
+          try {
+            fn(this);
+          } catch (e) {
+            console.error('AppState subscriber error:', e);
+          }
+        });
+
+      } finally {
+        this._isNotifying = false;
+
+        // Обработка отложенных изменений (из вызовов set() внутри подписчиков)
+        if (this._pendingKeys.size > 0) {
+          const nextKeys = Array.from(this._pendingKeys);
+          this._pendingKeys.clear();
+          this._notify(nextKeys);
+        }
       }
     },
 
-    // ── Мутации (единственный способ менять стейт) ───────
-    /** Установить свойство стейта и уведомить подписчиков */
+    // ── Мутации ─────────────────────────────────────────────
+
+    /**
+     * Установить одно значение.
+     * Distinct: если значение не изменилось — notify не вызывается.
+     */
     set(key, value) {
       if (this[key] === value) return;
       this[key] = value;
-      this._notify();
+      this._notify([key]);
     },
 
-    /** Toggle видимости слоя */
+    /**
+     * Атомарное обновление нескольких ключей.
+     * Подписчики вызываются ОДИН раз со списком всех изменённых ключей.
+     */
+    setMany(updates) {
+      const changed = [];
+      for (const key in updates) {
+        if (this[key] !== updates[key]) {
+          this[key] = updates[key];
+          changed.push(key);
+        }
+      }
+      if (changed.length > 0) {
+        this._notify(changed);
+      }
+    },
+
+    /** Переключить boolean-значение */
+    toggle(key) {
+      this.set(key, !this[key]);
+    },
+
+    // ── Управление слоями (Compositor) ──────────────────────
+
     toggleLayer(idx) {
-      if (idx < 0 || idx >= this.layers.length) return;
+      if (!this.layers[idx]) return;
       this.layers[idx].enabled = !this.layers[idx].enabled;
-      this._notify();
+      this._notify(['layers']);
     },
 
-    /** Solo — включить один слой, выключить остальные */
     soloLayer(idx) {
-      this.layers.forEach(function (l) { l.enabled = false; });
-      if (idx >= 0 && idx < this.layers.length) this.layers[idx].enabled = true;
-      this._notify();
+      this.layers.forEach(l => l.enabled = false);
+      if (this.layers[idx]) this.layers[idx].enabled = true;
+      this._notify(['layers']);
     },
 
-    // ── Утилиты ──────────────────────────────────────────
+    // ── URL-билдеры ─────────────────────────────────────────
 
-    /** Полный URL стрима (с учётом proxy) */
+    /**
+     * URL видеострима.
+     * При USE_PROXY=true — через dev-server proxy (обход CORS).
+     * Иначе — напрямую к ESP32/IP Webcam.
+     */
     getStreamUrl() {
       if (this.USE_PROXY && this.EXTERNAL_STREAM_URL) {
         return '/proxy/stream?url=' + encodeURIComponent(this.EXTERNAL_STREAM_URL);
       }
-      var videoHost = this.VIDEO_HOST || this.ESP32_HOST;
-      var streamPath = this.STREAM_PATH || '/stream';
+      const videoHost = this.VIDEO_HOST || this.ESP32_HOST;
+      const streamPath = this.STREAM_PATH || '/stream';
       return 'http://' + videoHost + ':' + this.STREAM_PORT + streamPath;
     },
 
-    /** Базовый URL API */
+    /** Базовый URL API: http://host[:port] */
     getApiBase() {
-      var port = this.HTTP_PORT === 80 ? '' : ':' + this.HTTP_PORT;
+      const port = this.HTTP_PORT === 80 ? '' : ':' + this.HTTP_PORT;
       return 'http://' + this.ESP32_HOST + port;
     },
 
-    /** Полный URL для API endpoint */
+    /** Полный URL эндпоинта: base + endpoint */
     getApiUrl(endpoint) {
       return this.getApiBase() + endpoint;
     },
 
-    // ── Persistence ──────────────────────────────────────
+    // ── Персистентность (localStorage) ──────────────────────
 
-    /** Сохранить мутабельный стейт в localStorage */
+    /**
+     * Сохранить текущие настройки в localStorage.
+     * Сохраняются только ключи из PERSIST_KEYS + состояние слоёв.
+     */
     save() {
-      var data = {};
-      for (var i = 0; i < PERSIST_KEYS.length; i++) {
-        data[PERSIST_KEYS[i]] = this[PERSIST_KEYS[i]];
+      const data = {};
+      PERSIST_KEYS.forEach(k => {
+        data[k] = this[k];
+      });
+
+      if (this.layers.length > 0) {
+        data._layerEnabled = this.layers.map(l => l.enabled);
       }
-      // Слои — отдельный массив enabled-флагов
-      data._layerEnabled = this.layers.map(function (l) { return l.enabled; });
-      localStorage.setItem(LS_KEY, JSON.stringify(data));
-      console.log('✅ Настройки сохранены');
+
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+        console.log('Настройки сохранены (v2)');
+        if (window.showSaveStatus) window.showSaveStatus(true);
+      } catch (e) {
+        console.error('Ошибка сохранения:', e);
+        if (window.showSaveStatus) window.showSaveStatus(false);
+      }
     },
 
-    /** Загрузить из localStorage (мержит поверх дефолтов) */
+    /**
+     * Загрузить настройки из localStorage.
+     * Если нет v2-формата — пробуем мигрировать со старого.
+     */
     load() {
-      var raw = localStorage.getItem(LS_KEY);
-      // Обратная совместимость: старый формат AppConfig
-      if (!raw) raw = localStorage.getItem('AppConfig');
-      if (!raw) return;
+      let raw = localStorage.getItem(LS_KEY);
+
+      if (!raw) {
+        console.log('Миграция со старого конфига...');
+        this._migrateFromOldConfig();
+        return;
+      }
+
       try {
-        var data = JSON.parse(raw);
-        // Плоские ключи
-        for (var i = 0; i < PERSIST_KEYS.length; i++) {
-          var k = PERSIST_KEYS[i];
-          if (data[k] !== undefined) this[k] = data[k];
-        }
-        // Обратная совместимость: старый вложенный формат CONTROL/JOYSTICK
-        if (data.CONTROL && typeof data.CONTROL === 'object') {
-          var c = data.CONTROL;
-          if (c.expoX !== undefined) this.expoX = c.expoX;
-          if (c.expoY !== undefined) this.expoY = c.expoY;
-          if (c.outputMinX !== undefined) this.outputMinX = c.outputMinX;
-          if (c.outputMaxX !== undefined) this.outputMaxX = c.outputMaxX;
-          if (c.outputMinY !== undefined) this.outputMinY = c.outputMinY;
-          if (c.outputMaxY !== undefined) this.outputMaxY = c.outputMaxY;
-          if (c.deadzone !== undefined) this.deadzone = c.deadzone;
-        }
-        if (data.JOYSTICK && typeof data.JOYSTICK === 'object') {
-          if (data.JOYSTICK.scale !== undefined) this.joystickScale = data.JOYSTICK.scale;
-        }
-        // Обратная совместимость: COMPOSITOR
-        if (data.COMPOSITOR && typeof data.COMPOSITOR === 'object') {
-          var comp = data.COMPOSITOR;
-          if (comp.baseLayer !== undefined) this.baseLayer = !!comp.baseLayer;
-          if (comp.motionDesaturate !== undefined) this.motionDesaturate = !!comp.motionDesaturate;
-          if (comp.motionOsd !== undefined) this.motionOsd = !!comp.motionOsd;
-          if (comp.layerEnabled) this._savedLayerEnabled = comp.layerEnabled;
-        }
-        // Новый формат: _layerEnabled
+        const data = JSON.parse(raw);
+
+        PERSIST_KEYS.forEach(k => {
+          if (data[k] !== undefined) {
+            this[k] = data[k];
+          }
+        });
+
+        // Слои восстанавливаются отложенно (после инициализации Compositor)
         if (data._layerEnabled && Array.isArray(data._layerEnabled)) {
           this._savedLayerEnabled = data._layerEnabled;
         }
-        console.log('📦 Настройки загружены из localStorage');
+
+        console.log('Настройки загружены (v2)');
       } catch (e) {
-        console.warn('⚠️ Ошибка загрузки настроек:', e);
+        console.warn('Ошибка загрузки настроек:', e);
       }
     },
 
-    /** Сбросить к дефолтным значениям */
-    reset() {
-      localStorage.removeItem(LS_KEY);
-      localStorage.removeItem('AppConfig');
-      console.log('🗑️ Настройки сброшены. Перезагрузите страницу.');
-    },
-
-    /** Применить сохранённые enabled-флаги слоёв (вызывать после initLayers) */
+    /** Применить сохранённые enabled-флаги слоёв (вызывается из SceneService) */
     applySavedLayerEnabled() {
       if (!this._savedLayerEnabled || !Array.isArray(this._savedLayerEnabled)) return;
-      if (this._savedLayerEnabled.length !== this.layers.length) return;
-      for (var i = 0; i < this.layers.length; i++) {
-        this.layers[i].enabled = !!this._savedLayerEnabled[i];
+
+      if (this._savedLayerEnabled.length === this.layers.length) {
+        this.layers.forEach((l, i) => {
+          l.enabled = !!this._savedLayerEnabled[i];
+        });
+        this._notify(['layers']);
       }
       delete this._savedLayerEnabled;
-      this._notify();
     },
 
-    /** Есть ли несохранённые изменения относительно localStorage */
-    hasUnsavedChanges() {
-      var raw = localStorage.getItem(LS_KEY);
-      if (!raw) raw = localStorage.getItem('AppConfig');
-      if (!raw) return true;
+    /** Сбросить все настройки и перезагрузить страницу */
+    reset() {
+      localStorage.removeItem(LS_KEY);
+      localStorage.removeItem('AppState');
+      localStorage.removeItem('AppConfig');
+      console.log('Настройки сброшены. Перезагрузка...');
+      setTimeout(() => location.reload(), 500);
+    },
+
+    /**
+     * Миграция старого вложенного формата (AppState/AppConfig)
+     * в новый плоский (AppState_v2).
+     *
+     * Старый формат: { CV: { cannyLow: 50, ... }, OSD: { enabled: true, ... } }
+     * Новый формат:  { sceneCannyLow: 50, osdEnabled: true, ... }
+     */
+    _migrateFromOldConfig() {
+      const oldRaw = localStorage.getItem('AppState') || localStorage.getItem('AppConfig');
+      if (!oldRaw) return;
+
       try {
-        var saved = JSON.parse(raw);
+        const oldData = JSON.parse(oldRaw);
+        const updates = {};
 
-        // Сравниваем плоские ключи
-        for (var i = 0; i < PERSIST_KEYS.length; i++) {
-          var k = PERSIST_KEYS[i];
-          var savedVal = saved[k];
-          // Обратная совместимость: читаем из старого вложенного формата
-          if (savedVal === undefined && saved.CONTROL) savedVal = saved.CONTROL[k];
-          if (savedVal === undefined && saved.JOYSTICK && k === 'joystickScale') savedVal = saved.JOYSTICK.scale;
-          if (this[k] !== savedVal && savedVal !== undefined) return true;
+        PERSIST_KEYS.forEach(k => {
+          if (oldData[k] !== undefined) updates[k] = oldData[k];
+        });
+
+        // Flatten вложенных объектов
+        if (oldData.CV) {
+          if (oldData.CV.cannyLow !== undefined) updates.sceneCannyLow = oldData.CV.cannyLow;
+          if (oldData.CV.cannyHigh !== undefined) updates.sceneCannyHigh = oldData.CV.cannyHigh;
+          if (oldData.CV.enabled !== undefined) updates.sceneEnabled = oldData.CV.enabled;
+        }
+        if (oldData.OSD) {
+          if (oldData.OSD.pollIntervalSec !== undefined) updates.osdIntervalSec = oldData.OSD.pollIntervalSec;
+          if (oldData.OSD.enabled !== undefined) updates.osdEnabled = oldData.OSD.enabled;
         }
 
-        // Сравниваем слои (только если уже проинициализированы)
-        if (this.layers.length > 0) {
-          var currentEnabled = this.layers.map(function (l) { return l.enabled; });
-          var savedEnabled = saved._layerEnabled;
-          // Обратная совместимость
-          if (!savedEnabled && saved.COMPOSITOR) savedEnabled = saved.COMPOSITOR.layerEnabled;
-          if (!savedEnabled) return true;
-          if (currentEnabled.length !== savedEnabled.length) return true;
-          for (var j = 0; j < currentEnabled.length; j++) {
-            if (currentEnabled[j] !== savedEnabled[j]) return true;
-          }
-        }
+        this.setMany(updates);
+        console.log('Миграция завершена. Сохраняем в новый формат.');
+        this.save();
 
-        return false;
       } catch (e) {
-        return true;
+        console.error('Migration failed:', e);
       }
     },
+
+    /** Есть ли несохранённые изменения? Сравниваем с localStorage. */
+    hasUnsavedChanges() {
+       const raw = localStorage.getItem(LS_KEY);
+       if (!raw) return true;
+       try {
+         const saved = JSON.parse(raw);
+         for (const k of PERSIST_KEYS) {
+           if (this[k] !== saved[k]) return true;
+         }
+         return false;
+       } catch(e) { return true; }
+    }
+
   });
 
   window.AppState = store;
 
-  // Автозагрузка
+  // Загружаем сохранённые настройки при старте
   store.load();
+
 })();

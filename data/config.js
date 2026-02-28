@@ -31,10 +31,14 @@ window.AppDefaults = {
   STREAM_PATH: '/stream',
 
   // MJPEG Proxy (обход CORS, только через dev-server)
-  USE_PROXY: false,
+  USE_PROXY: true,
 
   // Полный URL внешнего стрима (для proxy)
-  EXTERNAL_STREAM_URL: null,
+  EXTERNAL_STREAM_URL: 'http://192.168.31.135:8080/',
+
+  // Retry стрима при обрыве
+  streamMaxRetries: 5,
+  streamBaseDelay: 2000,
 
   // ═══════════════════════════════════════════════════════════
   // 🔗 API Endpoints
@@ -68,13 +72,15 @@ window.AppDefaults = {
 
   joystickDefaultRadius: 120,
   joystickStickSize: 50,
-  joystickScale: 100,         // Масштаб стиков, % (25..175)
-  servoPanSpeed: 80,          // Скорость поворота сервы PAN (мс, 30..3000)
+  joystickMode: 'dual',        // dual | single | tank
+  joystickScale: 100,          // Масштаб стиков, % (25..175)
+  servoPanSpeed: 80,           // Скорость поворота сервы PAN (мс, 30..3000)
 
   // ═══════════════════════════════════════════════════════════
   // 🔍 Motion Detection — параметры (мутабельный, персистится)
   // ═══════════════════════════════════════════════════════════
 
+  motionEnabled: false,       // Включен ли детектор движения
   motionThreshold: 25,        // Порог бинаризации (0-255)
   motionMinArea: 500,         // Мин. площадь контура для BB (px²)
   motionDilate: 2,            // Итерации dilate
@@ -92,82 +98,59 @@ window.AppDefaults = {
   poiEmaSize: 80,             // EMA коэфф. для размера (% старого значения, 50..95)
 
   // ═══════════════════════════════════════════════════════════
-  // 🖼️ UI flags (мутабельный, персистится)
+  // 👁️ Scene / CV Parameters (Flattened)
+  // ═══════════════════════════════════════════════════════════
+
+  sceneEnabled: false,        // Включен ли анализ сцены (CV)
+  sceneProcessInterval: 100,  // Интервал обработки (мс)
+
+  // Canny Edge Detection
+  sceneCannyLow: 50,
+  sceneCannyHigh: 150,
+
+  // Hough Transform
+  sceneHoughThreshold: 50,
+  sceneHoughMinLength: 50,
+  sceneHoughMaxGap: 10,
+
+  // Фильтрация линий
+  sceneHorizonMaxAngle: 45,
+  sceneWallAngleTolerance: 15,
+
+  // Кластеризация
+  sceneClusterAngleTolerance: 8,
+  sceneMinClusterSegments: 1,
+  sceneSmoothFrames: 5,
+
+  // ═══════════════════════════════════════════════════════════
+  // 🖼️ UI flags / OSD (мутабельный, персистится)
   // ═══════════════════════════════════════════════════════════
 
   baseLayer: true,            // Базовый слой (видео) виден
   motionDesaturate: false,    // CSS-десатурация видео при Motion
   motionOsd: true,            // OSD виджет Motion
+  osdEnabled: true,           // Глобальный OSD
+  osdIntervalSec: 5,          // Интервал опроса статуса (сек)
 
   // ═══════════════════════════════════════════════════════════
-  // 📦 Статический конфиг (вложенные, read-only)
+  // 📦 Runtime-заглушки (будут переопределены в state.js)
   // ═══════════════════════════════════════════════════════════
-
-  CV: {
-    enabled: false,
-    processWidth: 640,
-    processHeight: 480,
-    processInterval: 100,
-
-    // Начальное состояние слоёв (читается в initLayers)
-    showHorizon: true,
-    showGrid: true,
-    showWalls: true,
-
-    // Canny
-    cannyLow: 50,
-    cannyHigh: 150,
-
-    // Hough
-    houghThreshold: 50,
-    houghMinLength: 50,
-    houghMaxGap: 10,
-
-    // Углы
-    horizonMaxAngle: 45,
-    wallAngleTolerance: 15,
-
-    // Кластеризация
-    clusterAngleTolerance: 8,
-    minClusterSegments: 1,
-    smoothFrames: 5,
-
-    // Цвета
-    colors: {
-      horizon: '#00FF00',
-      grid: 'rgba(0, 255, 255, 0.4)',
-      walls: '#FF6600',
-    },
-  },
-
-  MOTION: {
-    enabled: false,
-    processWidth: 320,
-    processHeight: 240,
-    processInterval: 100,
-
-    // Начальное состояние слоёв (читается в initLayers)
-    showPixels: true,
-    showBoxes: true,
-    showContours: false,
-    showDesaturate: false,
-    showOSD: true,
-    showPoi: true,
-  },
-
-  UI: {
-    reconnectDelay: 3000,
-    errorDisplayTime: 3000,
-  },
-
-  LAYERS: {
+  
+  controlX: 0,
+  controlY: 0,
+  controlActive: false,
+  controlMotors: [0, 0],
+  ledState: false,
+  isStreaming: false,
+  isWebcamActive: false,
+  
+  // Цвета для Canvas (не персистятся, но нужны как константы)
+  colors: {
+    horizon: '#00FF00',
+    grid: 'rgba(0, 255, 255, 0.4)',
+    walls: '#FF6600',
     borderActive: '#4CAF50',
     borderSolo:   '#FFC107',
     borderOff:    'rgba(255,255,255,0.15)',
-  },
-
-  OSD: {
-    enabled: true,
-    pollIntervalSec: 5,
-  },
+  }
 };

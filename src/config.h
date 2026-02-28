@@ -50,9 +50,9 @@
 //     FL = Front Left,  FR = Front Right
 //     RL = Rear Left,   RR = Rear Right
 #define PWM_PIN_FL      12
-#define PWM_PIN_FR      13
-#define PWM_PIN_RL      14
-#define PWM_PIN_RR      15
+#define PWM_PIN_FR      15
+#define PWM_PIN_RL      13
+#define PWM_PIN_RR      14
 
 #define PWM_FREQ        5000
 #define PWM_RESOLUTION  8
@@ -66,7 +66,7 @@
 
 // --- Servo Pan (SG90 на X-ось) ---
 #define SERVO_PIN       2     // GPIO 2 (T2) — сигнал PWM
-#define SERVO_CHANNEL   5     // LEDC канал (0=камера, 1-4=моторы)
+#define SERVO_CHANNEL   7     // LEDC канал 7 (Timer 3). Каналы 0-5 заняты: 0=камера, 1-4=моторы. Не ставить 5 — Timer 2 общий с каналом 4 (RR)!
 #define SERVO_MIN_US    500   // SG90: ширина импульса для 0°
 #define SERVO_MAX_US    2400  // SG90: ширина импульса для 180°
 #define SERVO_DEFAULT   90   // Начальный угол при старте

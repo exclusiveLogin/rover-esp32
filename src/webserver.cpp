@@ -174,6 +174,16 @@ static void streamAcceptClients(int serverFd) {
         tv.tv_sec = 2;
         tv.tv_usec = 0;
         setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+        // TCP Keepalive: ядро пингует клиента, ловит тихую смерть (WiFi выкл и т.п.)
+        int enable = 1;
+        int idle = 5;       // Через 5 сек тишины — начать проверку
+        int interval = 2;   // Пинг каждые 2 сек
+        int count = 3;      // 3 неудачи = мёртв (итого ~11 сек)
+        setsockopt(clientFd, SOL_SOCKET, SO_KEEPALIVE, &enable, sizeof(enable));
+        setsockopt(clientFd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        setsockopt(clientFd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+        setsockopt(clientFd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
         
         // Добавляем в массив
         streamClients[streamClientCount] = clientFd;
@@ -189,12 +199,36 @@ static void streamAcceptClients(int serverFd) {
  * При ошибке отправки удаляет клиента из массива.
  * @param fb Указатель на framebuffer камеры (JPEG)
  */
+/**
+ * Проверить, жив ли клиент (poll на POLLHUP/POLLERR).
+ * Ловит FIN от клиента, который закрыл вкладку/приложение.
+ * @param fd Файловый дескриптор сокета
+ * @return true = жив, false = мёртв (FIN/ошибка)
+ */
+static bool streamClientAlive(int fd) {
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;   // Проверяем входящие (FIN приходит как POLLIN + read()=0)
+    pfd.revents = 0;
+    int ret = poll(&pfd, 1, 0);  // timeout=0 — не блокируемся
+    if (ret > 0 && (pfd.revents & (POLLHUP | POLLERR))) {
+        return false;  // Клиент отключился или ошибка
+    }
+    return true;
+}
+
 static void streamSendFrame(camera_fb_t* fb) {
     if (streamClientCount == 0) return;
     
     // Round-robin: берём текущего клиента
     int idx = streamRRIndex;
     int fd  = streamClients[idx];
+
+    // Проверяем: клиент ещё жив? (poll на FIN/ошибку, без блокировки)
+    if (!streamClientAlive(fd)) {
+        streamRemoveClient(idx);
+        return;
+    }
     
     // Формируем MJPEG part
     char partHeader[128];
@@ -706,7 +740,7 @@ void webserverStartMain() {
     config.server_port = HTTP_PORT_MAIN;
     config.ctrl_port = 32768;        // Порт управления httpd (внутренний)
     config.max_open_sockets = 5;     // Макс. одновременных HTTP-соединений
-    config.max_uri_handlers = 27;    // Макс. зарегистрированных маршрутов
+    config.max_uri_handlers = 48;    // Макс. зарегистрированных маршрутов
     config.lru_purge_enable = true;  // Автоочистка старых соединений
 
     if (httpd_start(&mainHttpd, &config) != ESP_OK) {
@@ -723,9 +757,32 @@ void webserverStartMain() {
     httpd_uri_t uriMotionJs = {"/motion-detector.js", HTTP_GET, staticHandler, NULL};  // Motion Detector
     httpd_uri_t uriCompJs = {"/compositor.js",    HTTP_GET, staticHandler, NULL};  // Compositor
     httpd_uri_t uriJs     = {"/script.js",       HTTP_GET, staticHandler, NULL};
-    httpd_uri_t uriCss     = {"/style.css",   HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssBase    = {"/css/base.css",       HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssLayout  = {"/css/layout.css",     HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssVideo   = {"/css/video.css",      HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssControls= {"/css/controls.css",   HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssPanels  = {"/css/panels.css",     HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssJoy     = {"/css/joysticks.css",  HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriCssResp    = {"/css/responsive.css", HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriLogo    = {"/logo.svg",    HTTP_GET, staticHandler, NULL};
     httpd_uri_t uriFavicon = {"/favicon.ico", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriMathJs = {"/math.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriBinderJs = {"/state-binder.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriDriveModeJs = {"/drive-mode.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriStickJs = {"/stick-service.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriOsdJs = {"/osd.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriExpoJs = {"/expo-graph.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriSceneServiceJs = {"/scene-service.js", HTTP_GET, staticHandler, NULL};
+    httpd_uri_t uriStreamServiceJs = {"/stream-service.js", HTTP_GET, staticHandler, NULL};
+
+    httpd_register_uri_handler(mainHttpd, &uriMathJs);
+    httpd_register_uri_handler(mainHttpd, &uriBinderJs);
+    httpd_register_uri_handler(mainHttpd, &uriDriveModeJs);
+    httpd_register_uri_handler(mainHttpd, &uriStickJs);
+    httpd_register_uri_handler(mainHttpd, &uriOsdJs);
+    httpd_register_uri_handler(mainHttpd, &uriExpoJs);
+    httpd_register_uri_handler(mainHttpd, &uriSceneServiceJs);
+    httpd_register_uri_handler(mainHttpd, &uriStreamServiceJs);
     httpd_register_uri_handler(mainHttpd, &uriIndex);
     httpd_register_uri_handler(mainHttpd, &uriConfigJs);
     httpd_register_uri_handler(mainHttpd, &uriStateJs);
@@ -734,7 +791,13 @@ void webserverStartMain() {
     httpd_register_uri_handler(mainHttpd, &uriMotionJs);
     httpd_register_uri_handler(mainHttpd, &uriCompJs);
     httpd_register_uri_handler(mainHttpd, &uriJs);
-    httpd_register_uri_handler(mainHttpd, &uriCss);
+    httpd_register_uri_handler(mainHttpd, &uriCssBase);
+    httpd_register_uri_handler(mainHttpd, &uriCssLayout);
+    httpd_register_uri_handler(mainHttpd, &uriCssVideo);
+    httpd_register_uri_handler(mainHttpd, &uriCssControls);
+    httpd_register_uri_handler(mainHttpd, &uriCssPanels);
+    httpd_register_uri_handler(mainHttpd, &uriCssJoy);
+    httpd_register_uri_handler(mainHttpd, &uriCssResp);
     httpd_register_uri_handler(mainHttpd, &uriLogo);
     httpd_register_uri_handler(mainHttpd, &uriFavicon);
 

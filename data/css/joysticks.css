@@ -1,0 +1,270 @@
+/* ================================================================
+   FoxOnline — Joysticks: overlay, sticks, servo pan, modes
+   ================================================================ */
+
+.joysticks-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 20px;
+  z-index: 10;
+}
+
+.joystick-wrapper {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+
+.joystick-wrapper.left  { align-self: flex-end; }
+.joystick-wrapper.right { align-self: flex-end; }
+.joystick-wrapper.hidden { display: none; }
+
+.joystick-area {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  touch-action: none;
+  user-select: none;
+  transform-origin: center center;
+}
+
+.joystick-base {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 106, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+.joystick-rail {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(255, 106, 0, 0.2);
+  border-radius: 4px;
+}
+
+.joystick-rail.vertical {
+  left: 50%;
+  top: 15%;
+  bottom: 15%;
+  width: 4px;
+  transform: translateX(-50%);
+}
+
+.joystick-rail.horizontal {
+  top: 50%;
+  left: 15%;
+  right: 15%;
+  height: 4px;
+  transform: translateY(-50%);
+}
+
+.joystick-stick {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--accent-hover), var(--accent));
+  box-shadow:
+    0 4px 15px var(--accent-glow),
+    inset 0 2px 8px rgba(255, 255, 255, 0.2);
+  cursor: grab;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: box-shadow 0.1s, transform 0.05s;
+}
+
+.joystick-stick:hover {
+  box-shadow:
+    0 4px 25px rgba(255, 106, 0, 0.5),
+    inset 0 2px 8px rgba(255, 255, 255, 0.3);
+}
+
+.joystick-stick.active {
+  cursor: grabbing;
+  box-shadow:
+    0 0 35px rgba(255, 106, 0, 0.7),
+    inset 0 2px 8px rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.joystick-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 106, 0, 0.1);
+}
+
+.joystick-label .axis-icon { font-size: 0.8rem; color: var(--accent); }
+
+.joystick-label .axis-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.joystick-label .axis-value {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  min-width: 35px;
+  text-align: right;
+}
+
+.joystick-label .axis-expo {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  min-width: 40px;
+}
+
+/* Servo Pan */
+.servo-pan-wrapper {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+  align-self: flex-end;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 106, 0, 0.1);
+}
+
+.servo-pan-wrapper .servo-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.servo-pan-wrapper .servo-slider {
+  flex: 1;
+  height: 28px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-input);
+  border-radius: 14px;
+  touch-action: none;
+}
+
+.servo-pan-wrapper .servo-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.25);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.servo-pan-wrapper .servo-slider::-moz-range-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.25);
+}
+
+.servo-pan-wrapper .servo-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Control indicator */
+.control-indicator {
+  position: absolute;
+  top: 48px;
+  left: 1%;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  font-size: 1.2rem;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 106, 0, 0.1);
+}
+
+.control-status {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-status.error   { color: var(--error); }
+.control-status.pending { color: var(--warning); }
+
+/* Single joystick mode */
+.joysticks-overlay.single-mode {
+  justify-content: center;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-area {
+  width: 160px;
+  height: 160px;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-stick {
+  width: 60px;
+  height: 60px;
+}
+
+.joysticks-overlay.single-mode .joystick-rail { display: none; }
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::before,
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 106, 0, 0.2);
+  pointer-events: none;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::before {
+  left: 50%;
+  top: 15%;
+  bottom: 15%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.right .joystick-base::after {
+  top: 50%;
+  left: 15%;
+  right: 15%;
+  height: 2px;
+  transform: translateY(-50%);
+}

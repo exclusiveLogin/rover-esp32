@@ -1,0 +1,60 @@
+/* ================================================================
+   FoxOnline — Responsive: all media queries
+   ================================================================ */
+
+@media (min-width: 768px) {
+  .dashboard {
+    grid-template-columns: 5fr 3fr;
+    gap: 14px;
+  }
+
+  .osd-overlay { font-size: 0.65rem; gap: 5px; padding: 8px 12px; }
+
+  .joystick-area { width: 150px; height: 150px; }
+  .joystick-stick { width: 60px; height: 60px; }
+  .joysticks-overlay { padding: 30px 40px; }
+
+  .joysticks-overlay.single-mode .joystick-wrapper.right .joystick-area {
+    width: 200px; height: 200px;
+  }
+  .joysticks-overlay.single-mode .joystick-wrapper.right .joystick-stick {
+    width: 70px; height: 70px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .joystick-area { width: 180px; height: 180px; }
+  .joystick-stick { width: 70px; height: 70px; }
+  .joysticks-overlay { padding: 40px 60px; }
+}
+
+@media (max-width: 480px) {
+  .topbar__name { font-size: 1rem; }
+
+  .controls { flex-wrap: wrap; gap: 5px; }
+  .btn { min-width: calc(50% - 4px); font-size: 0.75rem; padding: 8px 10px; }
+  .btn:last-child { flex: 1 1 100%; }
+
+  .osd-overlay { font-size: 0.5rem; gap: 3px; padding: 4px 5px; }
+  .osd-widget { padding: 1px 5px; }
+  .osd-motors { display: none; }
+
+  .joystick-area { width: 90px; height: 90px; }
+  .joystick-stick { width: 40px; height: 40px; }
+  .joysticks-overlay { padding: 10px; }
+  .joystick-label { padding: 3px 8px; }
+  .joystick-label .axis-name { display: none; }
+
+  .expo-axis { padding: 10px 14px; min-width: 56px; }
+  .expo-vslider { width: 100px; }
+  .expo-vslider::-webkit-slider-thumb { width: 34px; height: 34px; margin-top: -13px; }
+
+  .output-axis { padding: 10px 12px; }
+  .output-slider-row { max-width: 110px; }
+
+  .layer-tiles { gap: 4px; }
+  .layer-tile { padding: 2px; }
+  .layer-tile-canvas { max-width: 90px; }
+  .layer-tile-label { font-size: 0.5rem; }
+  .layer-eye-btn { width: 20px; height: 20px; font-size: 0.6rem; }
+}

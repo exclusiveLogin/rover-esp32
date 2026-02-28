@@ -35,10 +35,10 @@
 // --- Маппинг пинов и LEDC-каналов ---
 // Индексы совпадают с enum Motor: [RL=0, FR=1, FL=2, RR=3]
 static const uint8_t pwmPins[MOTOR_COUNT] = {
-    PWM_PIN_FL, PWM_PIN_FR, PWM_PIN_RL, PWM_PIN_RR
+    PWM_PIN_RL, PWM_PIN_FR, PWM_PIN_FL, PWM_PIN_RR
 };
 static const uint8_t pwmChannels[MOTOR_COUNT] = {
-    PWM_CH_FL, PWM_CH_FR, PWM_CH_RL, PWM_CH_RR
+    PWM_CH_RL, PWM_CH_FR, PWM_CH_FL, PWM_CH_RR
 };
 
 // --- Текущее состояние скоростей моторов ---

@@ -1,0 +1,105 @@
+/* ================================================================
+   FoxOnline — Base: reset, variables, body, keyframes
+   ================================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+:root {
+  --bg-primary:   #08080c;
+  --bg-panel:     #101018;
+  --bg-surface:   #181822;
+  --bg-input:     #1e1e2a;
+  --bg-deep:      #000;
+
+  --accent:       #FF6A00;
+  --accent-hover: #FF8C33;
+  --accent-dim:   #CC5500;
+  --accent-glow:  rgba(255, 106, 0, 0.25);
+  --accent-subtle:rgba(255, 106, 0, 0.08);
+
+  --text-primary:   #E8E8EC;
+  --text-secondary: #8888A0;
+  --text-muted:     #555566;
+
+  --success: #00C853;
+  --error:   #FF3D3D;
+  --warning: #FFB300;
+
+  --radius:  12px;
+  --radius-sm: 8px;
+
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Courier New', monospace;
+  --font-ui:   -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+
+  --border-gradient: linear-gradient(
+    135deg, var(--accent) 0%, transparent 40%, transparent 60%, var(--accent-dim) 100%
+  );
+
+  --transition: 0.2s ease;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Keyframes */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes borderRotate {
+  to { --border-angle: 360deg; }
+}
+
+/* Focus */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:focus-visible,
+.toggle-btn:focus-visible,
+.param-slider:focus-visible,
+.expo-vslider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-dim);
+}

@@ -1,0 +1,199 @@
+/* ================================================================
+   FoxOnline — Layout: topbar, dashboard grid, panels, footer
+   ================================================================ */
+
+/* Topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-primary) 100%);
+  border-bottom: 1px solid var(--accent-dim);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar__brand img {
+  display: block;
+  border-radius: 6px;
+}
+
+.topbar__name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--text-primary);
+}
+
+.topbar__accent {
+  color: var(--accent);
+}
+
+/* Connection status */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: var(--bg-input);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  animation: pulse 1.5s infinite;
+  flex-shrink: 0;
+}
+
+.status.connected .dot {
+  background: var(--success);
+  animation: none;
+  box-shadow: 0 0 6px rgba(0, 200, 83, 0.5);
+}
+
+.status.error .dot {
+  background: var(--error);
+  animation: pulse 0.5s infinite;
+}
+
+.status .text {
+  color: var(--text-secondary);
+}
+
+/* Dashboard grid */
+.dashboard {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: clamp(8px, 2vw, 16px);
+  max-width: min(96vw, 1440px);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Panel component (<details>) */
+.panel {
+  background: var(--bg-panel);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: var(--radius);
+  background: var(--border-gradient);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.35;
+  transition: opacity 0.3s;
+}
+
+.panel:hover::before {
+  opacity: 0.7;
+}
+
+.panel[open]::before {
+  opacity: 0.6;
+}
+
+.panel--active::before {
+  background: conic-gradient(
+    from var(--border-angle),
+    var(--accent), transparent 25%, transparent 75%, var(--accent-dim)
+  );
+  animation: borderRotate 4s linear infinite;
+  opacity: 0.8;
+}
+
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-panel) 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background var(--transition);
+}
+
+.panel__header::-webkit-details-marker { display: none; }
+
+.panel__header:hover {
+  background: linear-gradient(180deg, var(--bg-input) 0%, var(--bg-panel) 100%);
+}
+
+.panel__icon {
+  font-size: 1rem;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.panel__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+}
+
+.panel__chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+
+.panel[open] > .panel__header .panel__chevron {
+  transform: rotate(180deg);
+}
+
+.panel__body {
+  padding: 14px 16px 16px;
+}
+
+.panel--fullwidth {
+  grid-column: 1 / -1;
+}
+
+/* Footer */
+footer {
+  padding: 12px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-top: 1px solid rgba(255, 106, 0, 0.08);
+  background: var(--bg-primary);
+}
+
+footer .footer-accent {
+  color: var(--accent);
+  font-weight: 600;
+}

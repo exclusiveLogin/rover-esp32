@@ -1,33 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" fill="#1a202c" rx="4"/>
-  
-  <!-- Плата ESP32 -->
-  <rect x="6" y="18" width="20" height="10" fill="#2d5016" rx="1"/>
-  <rect x="8" y="20" width="3" height="2" fill="#c6c6c6"/>
-  <rect x="12" y="20" width="3" height="2" fill="#c6c6c6"/>
-  <rect x="16" y="20" width="3" height="2" fill="#c6c6c6"/>
-  <rect x="20" y="20" width="3" height="2" fill="#c6c6c6"/>
-  <rect x="10" y="24" width="2" height="2" fill="#ffd700"/>
-  <rect x="20" y="24" width="2" height="2" fill="#ffd700"/>
-  
-  <!-- Морда лисы -->
-  <circle cx="16" cy="10" r="7" fill="#ed8936"/>
-  
-  <!-- Уши -->
-  <path d="M 10 7 L 8 2 L 12 6 Z" fill="#ed8936"/>
-  <path d="M 22 7 L 24 2 L 20 6 Z" fill="#ed8936"/>
-  <path d="M 10 6 L 9 3 L 11 6 Z" fill="#2d3748"/>
-  <path d="M 22 6 L 23 3 L 21 6 Z" fill="#2d3748"/>
-  
-  <!-- Белая морда -->
-  <ellipse cx="16" cy="12" rx="5" ry="4" fill="#fff"/>
-  
-  <!-- Глаза -->
-  <circle cx="13.5" cy="10" r="1.5" fill="#2d3748"/>
-  <circle cx="18.5" cy="10" r="1.5" fill="#2d3748"/>
-  <circle cx="14" cy="9.5" r="0.5" fill="#fff"/>
-  <circle cx="19" cy="9.5" r="0.5" fill="#fff"/>
-  
-  <!-- Нос -->
-  <circle cx="16" cy="13" r="1" fill="#2d3748"/>
+  <defs>
+    <!-- Drop shadow for depth -->
+    <filter id="dropShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Group centered with shadow -->
+  <g transform="translate(16,17)" filter="url(#dropShadow)">
+    
+    <!-- 1. Orange Ear (Top) -->
+    <g>
+      <!-- Left side (Inner Ear / Light) -->
+      <path d="M0,0 L-5,-10 L0,-16 L0,0 Z" fill="#FF9F55"/>
+      <!-- Right side (Outer Ear / Shadow) -->
+      <path d="M0,0 L5,-10 L0,-16 L0,0 Z" fill="#CC5500"/>
+    </g>
+
+    <!-- 2. White Ear (Right-Bottom) -->
+    <g transform="rotate(120)">
+      <!-- Left side (Light) -->
+      <path d="M0,0 L-5,-10 L0,-16 L0,0 Z" fill="#F0F0F0"/>
+      <!-- Right side (Shadow) -->
+      <path d="M0,0 L5,-10 L0,-16 L0,0 Z" fill="#B0B0B0"/>
+    </g>
+
+    <!-- 3. Black Ear (Left-Bottom) -->
+    <g transform="rotate(240)">
+      <!-- Left side (Light) -->
+      <path d="M0,0 L-5,-10 L0,-16 L0,0 Z" fill="#333333"/>
+      <!-- Right side (Shadow) -->
+      <path d="M0,0 L5,-10 L0,-16 L0,0 Z" fill="#000000"/>
+    </g>
+    
+  </g>
 </svg>

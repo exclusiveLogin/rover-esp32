@@ -3,78 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>ESP32-CAM Rover</title>
-  <link rel="stylesheet" href="/style.css">
+  <title>FoxOnline</title>
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/video.css">
+  <link rel="stylesheet" href="/css/controls.css">
+  <link rel="stylesheet" href="/css/panels.css">
+  <link rel="stylesheet" href="/css/joysticks.css">
+  <link rel="stylesheet" href="/css/responsive.css">
 </head>
 <body>
-  <header>
-    <div class="logo">
-      <img src="/logo.svg" alt="Logo" width="32" height="32">
+
+  <!-- ════════════════ TOPBAR ════════════════ -->
+  <header class="topbar">
+    <div class="topbar__brand">
+      <img src="/logo.svg" alt="FoxOnline" width="28" height="28">
+      <span class="topbar__name">Fox<span class="topbar__accent">Online</span></span>
     </div>
-    <h1>ESP32-CAM Rover</h1>
     <div class="status" id="connection-status">
       <span class="dot"></span>
       <span class="text">Подключение...</span>
     </div>
   </header>
 
-  <main>
-    <!-- Видео панель с джойстиками поверх -->
+  <!-- ════════════════ DASHBOARD ════════════════ -->
+  <main class="dashboard">
+
+    <!-- ──────── VIDEO PANEL (full-width, no collapse) ──────── -->
     <div class="video-panel">
       <div class="video-container">
-        <!-- MJPEG стрим (ESP32, IP камеры) -->
         <img id="video-feed" alt="Video Feed" crossorigin="anonymous">
-        <!-- Локальная вебка (getUserMedia) -->
         <video id="video-local" autoplay playsinline muted></video>
-        
+
         <div class="video-overlay" id="video-overlay">
           <div class="loader"></div>
           <span>Загрузка стрима...</span>
         </div>
-        
-        <!-- 🎬 Compositor Overlay (единый canvas для всех слоёв) -->
+
         <canvas id="compositor-overlay" class="compositor-overlay"></canvas>
-        
-        <!-- OSD Overlay (телеметрия поверх видео, верхняя полоса) -->
+
+        <!-- OSD Overlay -->
         <div class="osd-overlay" id="osd-overlay">
-          <!-- WiFi / RSSI -->
           <div class="osd-widget">
             <span class="osd-icon">RSSI</span><span id="osd-rssi" class="osd-val">—</span><span class="osd-unit">dBm</span>
           </div>
-          <!-- IP -->
           <div class="osd-widget">
             <span class="osd-icon">IP</span><span id="osd-ip" class="osd-val">—</span>
           </div>
-          <!-- Uptime -->
           <div class="osd-widget">
             <span class="osd-icon">UP</span><span id="osd-uptime" class="osd-val">—</span>
           </div>
-          <!-- Heap -->
           <div class="osd-widget">
             <span class="osd-icon">HEAP</span><span id="osd-heap" class="osd-val">—</span>
           </div>
-          <!-- PSRAM -->
           <div class="osd-widget">
             <span class="osd-icon">PSRAM</span><span id="osd-psram" class="osd-val">—</span>
           </div>
-          <!-- CPU -->
           <div class="osd-widget">
             <span class="osd-icon">CPU</span><span id="osd-cpu" class="osd-val">—</span><span class="osd-unit">MHz</span>
           </div>
-          <!-- Stream clients -->
           <div class="osd-widget">
             <span class="osd-icon">CLI</span><span id="osd-clients" class="osd-val">—</span>
           </div>
-          <!-- LED -->
           <div class="osd-widget">
             <span class="osd-icon">LED</span><span id="osd-led" class="osd-val">—</span>
           </div>
-          <!-- Motion (скрыт по умолчанию) -->
           <div class="osd-widget osd-motion" id="osd-motion-widget" style="display: none;">
             <span class="osd-icon">MOT</span><span id="osd-motion-percent" class="osd-val">0%</span>
             <span class="osd-unit">|</span><span id="osd-motion-regions" class="osd-val">0</span><span class="osd-unit">reg</span>
           </div>
-          <!-- Motors (компактно) -->
           <div class="osd-widget osd-motors">
             <span class="osd-motor">FL:<span id="osd-fl">0</span></span>
             <span class="osd-motor">FR:<span id="osd-fr">0</span></span>
@@ -82,10 +79,9 @@
             <span class="osd-motor">RR:<span id="osd-rr">0</span></span>
           </div>
         </div>
-        
-        <!-- 🎮 Джойстики поверх видео (DJI-style) -->
+
+        <!-- Joysticks Overlay -->
         <div class="joysticks-overlay" id="joysticks-overlay">
-          <!-- Левый джойстик — ГАЗ (только Y) -->
           <div class="joystick-wrapper left">
             <div class="joystick-area" id="joystick-left">
               <div class="joystick-base">
@@ -101,7 +97,6 @@
             </div>
           </div>
 
-          <!-- Servo Pan (между джойстиками) — растянут на всю ширину -->
           <div class="servo-pan-wrapper">
             <span class="servo-label">PAN</span>
             <input type="range" id="servo-pan-slider" class="servo-slider"
@@ -109,7 +104,6 @@
             <span class="servo-value" id="servo-pan-value">90°</span>
           </div>
 
-          <!-- Правый джойстик — РУЛЬ (только X) -->
           <div class="joystick-wrapper right">
             <div class="joystick-area" id="joystick-right">
               <div class="joystick-base">
@@ -125,7 +119,6 @@
             </div>
           </div>
 
-          <!-- Центральный индикатор состояния -->
           <div class="control-indicator">
             <span id="joy-active">◯</span>
             <span id="control-status" class="control-status"></span>
@@ -158,155 +151,175 @@
       </div>
     </div>
 
-    <!-- Информация -->
-    <div class="info-panel">
-      <div class="info-item">
-        <span class="label">Стрим URL</span>
-        <code id="stream-url">—</code>
-      </div>
-      <div class="info-item">
-        <span class="label">Статус</span>
-        <span id="stream-status">Остановлен</span>
-      </div>
-    </div>
+    <!-- ──────── PANEL: Control ──────── -->
+    <details class="panel" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x1F3AE;</span>
+        <span class="panel__title">Управление</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body">
 
-    <!-- Настройки управления -->
-    <div class="settings-panel">
-      <h2>Настройки</h2>
-      
-      <div class="param-section-header">Управление</div>
-      
-      <!-- Режим джойстиков -->
-      <div class="setting-row">
-        <span class="setting-label">Джойстики</span>
-        <div class="toggle-switch">
-          <button class="toggle-btn active" data-mode="dual">Раздельные</button>
-          <button class="toggle-btn" data-mode="single">Объединённый</button>
-        </div>
-      </div>
-
-      <!-- Размер стиков (±75%) -->
-      <div class="setting-row">
-        <span class="setting-label">Размер стиков</span>
-        <div class="param-slider-ctrl">
-          <input type="range" id="joystick-scale-slider" class="param-slider"
-                 min="25" max="175" value="100" step="5">
-          <span class="param-slider-value" id="joystick-scale-value">100%</span>
-        </div>
-      </div>
-
-      <!-- Скорость сервы PAN (30..3000мс) -->
-      <div class="setting-row">
-        <span class="setting-label">Скорость PAN</span>
-        <div class="param-slider-ctrl">
-          <input type="range" id="servo-speed-slider" class="param-slider"
-                 min="30" max="3000" value="80" step="10">
-          <span class="param-slider-value" id="servo-speed-value">80ms</span>
-        </div>
-      </div>
-
-      <div class="param-section-header">Expo кривая</div>
-
-      <!-- Expo панель: слайдер Y | график | слайдер X -->
-      <div class="expo-panel">
-        <!-- Левый: Y (газ) -->
-        <div class="expo-axis expo-axis-y">
-          <span class="expo-axis-title">ГАЗ</span>
-          <input type="range" id="expo-slider-y" class="expo-vslider expo-y"
-                 min="-100" max="100" value="0" step="5">
-          <span class="expo-axis-value" id="expo-value-y">0</span>
-        </div>
-
-        <!-- Центр: график -->
-        <div class="expo-graph-wrap">
-          <canvas id="expo-graph" width="150" height="150"></canvas>
-          <div class="expo-labels">
-            <span class="label-expo" id="expo-label-x" style="color:#ff9800">X: —</span>
-            <span class="label-expo" id="expo-label-y" style="color:#4caf50">Y: —</span>
+        <div class="param-section-header">Режим</div>
+        <div class="setting-row">
+          <span class="setting-label">Джойстики</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn active" data-mode="dual">Раздельные</button>
+            <button class="toggle-btn" data-mode="single">Объединённый</button>
+            <button class="toggle-btn" data-mode="tank">Танковый</button>
           </div>
         </div>
 
-        <!-- Правый: X (руль) -->
-        <div class="expo-axis expo-axis-x">
-          <span class="expo-axis-title">РУЛЬ</span>
-          <input type="range" id="expo-slider-x" class="expo-vslider expo-x"
-                 min="-100" max="100" value="0" step="5">
-          <span class="expo-axis-value" id="expo-value-x">0</span>
-        </div>
-      </div>
-
-      <div class="param-section-header">Ограничения выхода</div>
-
-      <!-- Диапазон PWM: ГАЗ слева | подпись | РУЛЬ справа -->
-      <div class="output-range-panel">
-        <div class="output-axis output-axis-y">
-          <span class="output-axis-title">ГАЗ (Y)</span>
-          <div class="output-slider-row">
-            <span class="output-slider-label">мин</span>
-            <input type="range" id="output-min-y-slider" class="param-slider"
-                   min="0" max="150" value="0" step="5">
-            <span class="param-slider-value" id="output-min-y-value">0</span>
-          </div>
-          <div class="output-slider-row">
-            <span class="output-slider-label">макс</span>
-            <input type="range" id="output-max-y-slider" class="param-slider"
-                   min="100" max="255" value="255" step="5">
-            <span class="param-slider-value" id="output-max-y-value">255</span>
+        <div class="setting-row">
+          <span class="setting-label">Размер стиков</span>
+          <div class="param-slider-ctrl">
+            <input type="range" id="joystick-scale-slider" class="param-slider"
+                   min="25" max="175" value="100" step="5">
+            <span class="param-slider-value" id="joystick-scale-value">100%</span>
           </div>
         </div>
-        <div class="output-range-center">
-          <span class="output-range-title">PWM</span>
-          <span class="output-range-hint">мин ↔ макс</span>
-        </div>
-        <div class="output-axis output-axis-x">
-          <span class="output-axis-title">РУЛЬ (X)</span>
-          <div class="output-slider-row">
-            <span class="output-slider-label">мин</span>
-            <input type="range" id="output-min-x-slider" class="param-slider"
-                   min="0" max="150" value="0" step="5">
-            <span class="param-slider-value" id="output-min-x-value">0</span>
-          </div>
-          <div class="output-slider-row">
-            <span class="output-slider-label">макс</span>
-            <input type="range" id="output-max-x-slider" class="param-slider"
-                   min="100" max="255" value="255" step="5">
-            <span class="param-slider-value" id="output-max-x-value">255</span>
+
+        <div class="setting-row">
+          <span class="setting-label">Скорость PAN</span>
+          <div class="param-slider-ctrl">
+            <input type="range" id="servo-speed-slider" class="param-slider"
+                   min="30" max="3000" value="80" step="10">
+            <span class="param-slider-value" id="servo-speed-value">80ms</span>
           </div>
         </div>
-      </div>
 
-      <!-- Сохранить настройки -->
-      <div class="setting-row setting-save-row">
-        <button type="button" id="settings-save-btn" class="btn btn-save-settings">
-          Сохранить настройки
-        </button>
-      </div>
+        <div class="param-section-header">Expo кривая</div>
+        <div class="expo-panel">
+          <div class="expo-axis expo-axis-y">
+            <span class="expo-axis-title">ГАЗ</span>
+            <input type="range" id="expo-slider-y" class="expo-vslider expo-y"
+                   min="-100" max="100" value="0" step="5">
+            <span class="expo-axis-value" id="expo-value-y">0</span>
+          </div>
+          <div class="expo-graph-wrap">
+            <canvas id="expo-graph" width="150" height="150"></canvas>
+            <div class="expo-labels">
+              <span class="label-expo" id="expo-label-x" style="color:#FF6A00">X: —</span>
+              <span class="label-expo" id="expo-label-y" style="color:#00C853">Y: —</span>
+            </div>
+          </div>
+          <div class="expo-axis expo-axis-x">
+            <span class="expo-axis-title">РУЛЬ</span>
+            <input type="range" id="expo-slider-x" class="expo-vslider expo-x"
+                   min="-100" max="100" value="0" step="5">
+            <span class="expo-axis-value" id="expo-value-x">0</span>
+          </div>
+        </div>
 
-      <div class="param-section-header">OSD</div>
+        <div class="param-section-header">Ограничения выхода</div>
+        <div class="output-range-panel">
+          <div class="output-axis output-axis-y">
+            <span class="output-axis-title">ГАЗ (Y)</span>
+            <div class="output-slider-row">
+              <span class="output-slider-label">мин</span>
+              <input type="range" id="output-min-y-slider" class="param-slider"
+                     min="0" max="150" value="0" step="5">
+              <span class="param-slider-value" id="output-min-y-value">0</span>
+            </div>
+            <div class="output-slider-row">
+              <span class="output-slider-label">макс</span>
+              <input type="range" id="output-max-y-slider" class="param-slider"
+                     min="100" max="255" value="255" step="5">
+              <span class="param-slider-value" id="output-max-y-value">255</span>
+            </div>
+          </div>
+          <div class="output-range-center">
+            <span class="output-range-title">PWM</span>
+            <span class="output-range-hint">мин ↔ макс</span>
+          </div>
+          <div class="output-axis output-axis-x">
+            <span class="output-axis-title">РУЛЬ (X)</span>
+            <div class="output-slider-row">
+              <span class="output-slider-label">мин</span>
+              <input type="range" id="output-min-x-slider" class="param-slider"
+                     min="0" max="150" value="0" step="5">
+              <span class="param-slider-value" id="output-min-x-value">0</span>
+            </div>
+            <div class="output-slider-row">
+              <span class="output-slider-label">макс</span>
+              <input type="range" id="output-max-x-slider" class="param-slider"
+                     min="100" max="255" value="255" step="5">
+              <span class="param-slider-value" id="output-max-x-value">255</span>
+            </div>
+          </div>
+        </div>
 
-      <!-- OSD настройки -->
-      <div class="setting-row">
-        <span class="setting-label">OSD</span>
-        <div class="toggle-switch">
-          <button class="toggle-btn active" id="osd-toggle">ON</button>
+        <div class="setting-row setting-save-row">
+          <button type="button" id="settings-save-btn" class="btn btn-save-settings">
+            Сохранить настройки
+          </button>
+          <span id="settings-save-status" class="save-settings-status" role="status" aria-live="polite"></span>
         </div>
       </div>
-      <div class="setting-row" id="osd-interval-row">
-        <span class="setting-label">Интервал OSD</span>
-        <div class="osd-interval-ctrl">
-          <input type="range" id="osd-interval-slider" class="osd-slider"
-                 min="1" max="10" value="5" step="1">
-          <span class="osd-interval-value" id="osd-interval-value">5 сек</span>
+    </details>
+
+    <!-- ──────── PANEL: Info ──────── -->
+    <details class="panel" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x2139;</span>
+        <span class="panel__title">Информация</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body info-panel">
+        <div class="info-grid">
+          <div class="info-item"><span class="label">IP</span><code id="info-ip">—</code></div>
+          <div class="info-item"><span class="label">RSSI</span><code id="info-rssi">—</code></div>
+          <div class="info-item"><span class="label">Uptime</span><code id="info-uptime">—</code></div>
+          <div class="info-item"><span class="label">Heap</span><code id="info-heap">—</code></div>
+          <div class="info-item"><span class="label">CPU</span><code id="info-cpu">—</code></div>
+          <div class="info-item"><span class="label">Клиенты</span><code id="info-clients">—</code></div>
+        </div>
+        
+        <div class="info-divider"></div>
+        
+        <div class="info-log-container">
+          <div class="info-log-header">
+            <span>Журнал</span>
+            <button class="btn-icon-small" id="clear-log" title="Очистить">✕</button>
+          </div>
+          <div class="info-log" id="app-log"></div>
         </div>
       </div>
+    </details>
 
-      <!-- ═══════════════════════════════════════════════════════
-           SCENE (CVProcessor) — настройки + превью слоёв
-           ═══════════════════════════════════════════════════════ -->
-      <div class="processor-block" id="scene-settings-section" style="display: none;">
-        <h3 class="processor-block-title">Scene</h3>
+    <!-- ──────── PANEL: OSD ──────── -->
+    <details class="panel" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x1F4CA;</span>
+        <span class="panel__title">OSD</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body">
+        <div class="setting-row">
+          <span class="setting-label">OSD</span>
+          <div class="toggle-switch">
+            <button class="toggle-btn active" id="osd-toggle">ON</button>
+          </div>
+        </div>
+        <div class="setting-row" id="osd-interval-row">
+          <span class="setting-label">Интервал OSD</span>
+          <div class="osd-interval-ctrl">
+            <input type="range" id="osd-interval-slider" class="osd-slider"
+                   min="1" max="10" value="5" step="1">
+            <span class="osd-interval-value" id="osd-interval-value">5 сек</span>
+          </div>
+        </div>
+      </div>
+    </details>
 
-        <!-- Превью-плитки слоёв (6 слоёв Scene) -->
+    <!-- ──────── PANEL: Scene ──────── -->
+    <details class="panel" id="scene-settings-section" style="display: none;" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x1F50D;</span>
+        <span class="panel__title">Scene</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body">
         <div class="layer-tiles" id="scene-layer-tiles">
           <div class="layer-tile" data-layer-idx="0">
             <canvas class="layer-tile-canvas" id="layer-preview-0" width="120" height="90"></canvas>
@@ -340,7 +353,6 @@
           </div>
         </div>
 
-        <!-- Scene параметры (слайдеры) -->
         <div class="processor-params">
           <div class="param-section-header">Параметры обработки</div>
           <div class="setting-row">
@@ -393,6 +405,20 @@
             </div>
           </div>
           <div class="setting-row">
+            <span class="setting-label">Допуск кластера °</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-cluster-tol" class="param-slider" min="1" max="30" value="8" step="1">
+              <span class="param-slider-value" id="scene-cluster-tol-val">8</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">Мин. сегментов</span>
+            <div class="param-slider-ctrl">
+              <input type="range" id="scene-min-cluster" class="param-slider" min="1" max="10" value="1" step="1">
+              <span class="param-slider-value" id="scene-min-cluster-val">1</span>
+            </div>
+          </div>
+          <div class="setting-row">
             <span class="setting-label">Сглаживание</span>
             <div class="param-slider-ctrl">
               <input type="range" id="scene-smooth" class="param-slider" min="1" max="15" value="5" step="1">
@@ -408,14 +434,16 @@
           </div>
         </div>
       </div>
+    </details>
 
-      <!-- ═══════════════════════════════════════════════════════
-           MOTION (MotionDetector) — настройки + превью слоёв
-           ═══════════════════════════════════════════════════════ -->
-      <div class="processor-block" id="motion-settings-section" style="display: none;">
-        <h3 class="processor-block-title">Motion</h3>
-
-        <!-- Превью-плитки слоёв (3 слоя Motion) -->
+    <!-- ──────── PANEL: Motion ──────── -->
+    <details class="panel" id="motion-settings-section" style="display: none;" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x1F3AF;</span>
+        <span class="panel__title">Motion</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body">
         <div class="layer-tiles" id="motion-layer-tiles">
           <div class="layer-tile" data-layer-idx="6">
             <canvas class="layer-tile-canvas" id="layer-preview-6" width="120" height="90"></canvas>
@@ -439,7 +467,6 @@
           </div>
         </div>
 
-        <!-- Десатурация + OSD -->
         <div class="processor-params">
           <div class="param-section-header">Визуализация</div>
           <div class="setting-row">
@@ -456,7 +483,6 @@
           </div>
         </div>
 
-        <!-- Motion параметры (слайдеры) -->
         <div class="processor-params">
           <div class="param-section-header">Детекция движения</div>
           <div class="setting-row">
@@ -493,168 +519,177 @@
           </div>
         </div>
 
-        <!-- POI Tracking параметры -->
         <div class="processor-params">
           <div class="param-section-header">POI Tracking</div>
           <div style="display: flex; gap: 12px; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 200px;">
-          <div class="setting-row">
-            <span class="setting-label">Мин. кадров</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-minframes-slider" class="param-slider"
-                     min="2" max="30" value="5" step="1">
-              <span class="param-slider-value" id="poi-minframes-value">5</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Радиус совп. (px)</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-matchradius-slider" class="param-slider"
-                     min="5" max="100" value="30" step="5">
-              <span class="param-slider-value" id="poi-matchradius-value">30</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Удержание (fr)</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-persistence-slider" class="param-slider"
-                     min="0" max="30" value="5" step="1">
-              <span class="param-slider-value" id="poi-persistence-value">5</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Порог шума (%)</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-noisethreshold-slider" class="param-slider"
-                     min="10" max="80" value="30" step="5">
-              <span class="param-slider-value" id="poi-noisethreshold-value">30</span>
-            </div>
-          </div>
+              <div class="setting-row">
+                <span class="setting-label">Мин. кадров</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-minframes-slider" class="param-slider"
+                         min="2" max="30" value="5" step="1">
+                  <span class="param-slider-value" id="poi-minframes-value">5</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Радиус совп. (px)</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-matchradius-slider" class="param-slider"
+                         min="5" max="100" value="30" step="5">
+                  <span class="param-slider-value" id="poi-matchradius-value">30</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Удержание (fr)</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-persistence-slider" class="param-slider"
+                         min="0" max="30" value="5" step="1">
+                  <span class="param-slider-value" id="poi-persistence-value">5</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Порог шума (%)</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-noisethreshold-slider" class="param-slider"
+                         min="10" max="80" value="30" step="5">
+                  <span class="param-slider-value" id="poi-noisethreshold-value">30</span>
+                </div>
+              </div>
             </div>
             <div style="flex: 1; min-width: 200px;">
-          <div class="setting-row">
-            <span class="setting-label">Мин. размер</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-minsize-slider" class="param-slider"
-                     min="50" max="5000" value="500" step="50">
-              <span class="param-slider-value" id="poi-minsize-value">500</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Макс. размер</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-maxsize-slider" class="param-slider"
-                     min="1000" max="50000" value="50000" step="1000">
-              <span class="param-slider-value" id="poi-maxsize-value">50000</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">Макс. зон</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-maxzones-slider" class="param-slider"
-                     min="1" max="3" value="3" step="1">
-              <span class="param-slider-value" id="poi-maxzones-value">3</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">EMA позиция (%)</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-emaposition-slider" class="param-slider"
-                     min="50" max="90" value="70" step="5">
-              <span class="param-slider-value" id="poi-emaposition-value">70</span>
-            </div>
-          </div>
-          <div class="setting-row">
-            <span class="setting-label">EMA размер (%)</span>
-            <div class="param-slider-ctrl">
-              <input type="range" id="poi-emasize-slider" class="param-slider"
-                     min="50" max="95" value="80" step="5">
-              <span class="param-slider-value" id="poi-emasize-value">80</span>
-            </div>
-          </div>
+              <div class="setting-row">
+                <span class="setting-label">Мин. размер</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-minsize-slider" class="param-slider"
+                         min="50" max="5000" value="500" step="50">
+                  <span class="param-slider-value" id="poi-minsize-value">500</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Макс. размер</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-maxsize-slider" class="param-slider"
+                         min="1000" max="50000" value="50000" step="1000">
+                  <span class="param-slider-value" id="poi-maxsize-value">50000</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Макс. зон</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-maxzones-slider" class="param-slider"
+                         min="1" max="3" value="3" step="1">
+                  <span class="param-slider-value" id="poi-maxzones-value">3</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">EMA позиция (%)</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-emaposition-slider" class="param-slider"
+                         min="50" max="90" value="70" step="5">
+                  <span class="param-slider-value" id="poi-emaposition-value">70</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">EMA размер (%)</span>
+                <div class="param-slider-ctrl">
+                  <input type="range" id="poi-emasize-slider" class="param-slider"
+                         min="50" max="95" value="80" step="5">
+                  <span class="param-slider-value" id="poi-emasize-value">80</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </details>
 
-    <!-- Управление моторами -->
-    <div class="drive-panel">
-      <h2>Управление моторами</h2>
-      
-      <div class="motors-grid">
-        <!-- Front Left -->
-        <div class="motor-control" data-motor="fl">
-          <span class="motor-label">FL</span>
-          <div class="motor-buttons">
-            <button class="btn-motor inc" data-action="increment">+</button>
-            <button class="btn-motor dec" data-action="decrement">−</button>
+    <!-- ──────── PANEL: Motors ──────── -->
+    <details class="panel" open>
+      <summary class="panel__header">
+        <span class="panel__icon">&#x2699;</span>
+        <span class="panel__title">Моторы</span>
+        <span class="panel__chevron">&#x25BC;</span>
+      </summary>
+      <div class="panel__body">
+        <div class="motors-grid">
+          <div class="motor-control" data-motor="fl">
+            <span class="motor-label">FL</span>
+            <div class="motor-buttons">
+              <button class="btn-motor inc" data-action="increment">+</button>
+              <button class="btn-motor dec" data-action="decrement">−</button>
+            </div>
+            <div class="motor-bar">
+              <div class="motor-bar-fill" id="bar-fl"></div>
+            </div>
+            <span class="motor-value" id="val-fl">0</span>
           </div>
-          <div class="motor-bar">
-            <div class="motor-bar-fill" id="bar-fl"></div>
+
+          <div class="motor-control" data-motor="fr">
+            <span class="motor-label">FR</span>
+            <div class="motor-buttons">
+              <button class="btn-motor inc" data-action="increment">+</button>
+              <button class="btn-motor dec" data-action="decrement">−</button>
+            </div>
+            <div class="motor-bar">
+              <div class="motor-bar-fill" id="bar-fr"></div>
+            </div>
+            <span class="motor-value" id="val-fr">0</span>
           </div>
-          <span class="motor-value" id="val-fl">0</span>
+
+          <div class="motor-control" data-motor="rl">
+            <span class="motor-label">RL</span>
+            <div class="motor-buttons">
+              <button class="btn-motor inc" data-action="increment">+</button>
+              <button class="btn-motor dec" data-action="decrement">−</button>
+            </div>
+            <div class="motor-bar">
+              <div class="motor-bar-fill" id="bar-rl"></div>
+            </div>
+            <span class="motor-value" id="val-rl">0</span>
+          </div>
+
+          <div class="motor-control" data-motor="rr">
+            <span class="motor-label">RR</span>
+            <div class="motor-buttons">
+              <button class="btn-motor inc" data-action="increment">+</button>
+              <button class="btn-motor dec" data-action="decrement">−</button>
+            </div>
+            <div class="motor-bar">
+              <div class="motor-bar-fill" id="bar-rr"></div>
+            </div>
+            <span class="motor-value" id="val-rr">0</span>
+          </div>
         </div>
 
-        <!-- Front Right -->
-        <div class="motor-control" data-motor="fr">
-          <span class="motor-label">FR</span>
-          <div class="motor-buttons">
-            <button class="btn-motor inc" data-action="increment">+</button>
-            <button class="btn-motor dec" data-action="decrement">−</button>
-          </div>
-          <div class="motor-bar">
-            <div class="motor-bar-fill" id="bar-fr"></div>
-          </div>
-          <span class="motor-value" id="val-fr">0</span>
-        </div>
-
-        <!-- Rear Left -->
-        <div class="motor-control" data-motor="rl">
-          <span class="motor-label">RL</span>
-          <div class="motor-buttons">
-            <button class="btn-motor inc" data-action="increment">+</button>
-            <button class="btn-motor dec" data-action="decrement">−</button>
-          </div>
-          <div class="motor-bar">
-            <div class="motor-bar-fill" id="bar-rl"></div>
-          </div>
-          <span class="motor-value" id="val-rl">0</span>
-        </div>
-
-        <!-- Rear Right -->
-        <div class="motor-control" data-motor="rr">
-          <span class="motor-label">RR</span>
-          <div class="motor-buttons">
-            <button class="btn-motor inc" data-action="increment">+</button>
-            <button class="btn-motor dec" data-action="decrement">−</button>
-          </div>
-          <div class="motor-bar">
-            <div class="motor-bar-fill" id="bar-rr"></div>
-          </div>
-          <span class="motor-value" id="val-rr">0</span>
-        </div>
+        <button id="stop-all" class="btn stop-btn">STOP ALL</button>
       </div>
-
-      <button id="stop-all" class="btn stop-btn">🛑 STOP ALL</button>
-    </div>
+    </details>
 
   </main>
 
+  <!-- ════════════════ FOOTER ════════════════ -->
   <footer>
-    <p>ESP32-CAM Rover © 2026</p>
+    <p><span class="footer-accent">FoxOnline</span> &copy; 2026</p>
   </footer>
 
   <script src="/config.js"></script>
+  <script src="/math.js"></script>
   <script src="/state.js"></script>
+  <script src="/state-binder.js"></script>
+  <script src="/drive-mode.js"></script>
+  <script src="/stick-service.js"></script>
   <script src="/control.js"></script>
+  <script src="/osd.js"></script>
+  <script src="/expo-graph.js"></script>
   <script src="/cv-processor.js"></script>
   <script src="/motion-detector.js"></script>
   <script src="/compositor.js"></script>
+  <script src="/scene-service.js"></script>
+  <script src="/stream-service.js"></script>
   <script src="/script.js"></script>
-  
+
   <!-- OpenCV.js (GitHub CDN via jsDelivr) -->
-  <script async src="https://cdn.jsdelivr.net/gh/exclusiveLogin/rover-esp32@main/opencv.js" 
+  <script async src="https://cdn.jsdelivr.net/gh/exclusiveLogin/rover-esp32@main/opencv.js"
           crossorigin="anonymous"
           onload="window.dispatchEvent(new Event('opencv-ready'))"></script>
 </body>
