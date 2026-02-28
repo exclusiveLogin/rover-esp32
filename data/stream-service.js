@@ -69,6 +69,8 @@ class StreamService {
     this._retries    = 0;      // Счётчик попыток переподключения
     this._retryTimer = null;   // setTimeout ID для retry
     this._running    = false;  // Флаг активности стрима
+    this._gotFrame   = false;  // Получен ли хотя бы один кадр
+    this.onFirstFrame = null;  // Callback: вызывается при первом кадре
   }
 
   get active() { return this._running; }
@@ -119,6 +121,7 @@ class StreamService {
    */
   stop() {
     this._running = false;
+    this._gotFrame = false;
     clearTimeout(this._retryTimer);
     this._retryTimer = null;
     this._retries = 0;
@@ -222,9 +225,12 @@ class StreamService {
     }
 
     this._ctx.drawImage(bitmap, 0, 0);
-
-    // Немедленно освобождаем GPU/RAM — не ждём GC
     bitmap.close();
+
+    if (!this._gotFrame) {
+      this._gotFrame = true;
+      if (this.onFirstFrame) this.onFirstFrame();
+    }
   }
 
   // ── Retry с exponential backoff ───────────────────────────

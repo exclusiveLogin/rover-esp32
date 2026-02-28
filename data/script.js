@@ -76,14 +76,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connStatus = document.getElementById('connection-status');
   const connText = connStatus.querySelector('.text');
   store.subscribe(['isOnline', 'controlError'], (s) => {
-    if (s.isOnline) {
+    if (s.isOnline === null) {
+      connStatus.className = 'status';
+      connText.textContent = 'Подключение...';
+    } else if (s.isOnline) {
       connStatus.className = 'status connected';
       connText.textContent = 'Подключено';
     } else {
       connStatus.className = 'status error';
       connText.textContent = 'Нет связи';
     }
-    
+
     if (s.controlError) {
       window.uiLogger.warn('Ошибка связи с контроллером');
     }
@@ -210,15 +213,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ── 5. Stream toggle & LED ────────────────────────────────
   const streamToggle = document.getElementById('stream-toggle');
+  const videoOverlay = document.getElementById('video-overlay');
+
+  // При первом кадре — скрываем оверлей загрузки
+  stream.onFirstFrame = () => {
+    if (videoOverlay) videoOverlay.classList.remove('visible');
+  };
 
   store.subscribe('isStreaming', (s) => {
     if (s.isStreaming) {
+      if (videoOverlay) videoOverlay.classList.add('visible');
       stream.start();
       videoCanvas.classList.remove('hidden');
       streamToggle.classList.add('active');
       streamToggle.querySelector('.icon').textContent = '⏹';
     } else {
       stream.stop();
+      if (videoOverlay) videoOverlay.classList.remove('visible');
       videoCanvas.classList.add('hidden');
       streamToggle.classList.remove('active');
       streamToggle.querySelector('.icon').textContent = '▶';
@@ -227,12 +238,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   streamToggle.addEventListener('click', () => store.toggle('isStreaming'));
 
-  document.getElementById('led-btn').addEventListener('click', async () => {
+  const ledBtn = document.getElementById('led-btn');
+  ledBtn.addEventListener('click', async () => {
     try {
       await fetch(store.getApiUrl('/led/toggle'), { method: 'POST' });
-      document.getElementById('led-btn').classList.toggle('active');
+      store.toggle('ledState');
       window.uiLogger.info('LED переключен');
     } catch (e) { window.uiLogger.error('LED: ' + e.message); }
+  });
+
+  store.subscribe('ledState', (s) => {
+    ledBtn.classList.toggle('active', !!s.ledState);
   });
 
   // ── 5. Servo PAN ───────────────────────────────────────────
@@ -379,28 +395,56 @@ document.addEventListener('DOMContentLoaded', async () => {
   new SimpleJoystick('joystick-left', 'stick-left', 'left');
   new SimpleJoystick('joystick-right', 'stick-right', 'right');
   
-  // Визуализация значений
-  store.subscribe(['rawControlX', 'rawControlY', 'controlX', 'controlY'], (s) => {
+  // Визуализация значений джойстиков + expo labels
+  const expoLabelX = document.getElementById('expo-label-x');
+  const expoLabelY = document.getElementById('expo-label-y');
+  const ctrlStatus = document.getElementById('control-status');
+
+  store.subscribe(['rawControlX', 'rawControlY', 'controlX', 'controlY', 'controlActive'], (s) => {
     const joyY = document.getElementById('joy-y');
     const expoY = document.getElementById('expo-y');
     if (joyY) joyY.textContent = Math.round((s.rawControlY || 0) * 100);
     if (expoY) expoY.textContent = '→' + (s.controlY || 0);
-    
+
     const joyX = document.getElementById('joy-x');
     const expoX = document.getElementById('expo-x');
     if (joyX) joyX.textContent = Math.round((s.rawControlX || 0) * 100);
     if (expoX) expoX.textContent = '→' + (s.controlX || 0);
-    
+
+    // Expo graph labels (панель Control)
+    if (expoLabelX) expoLabelX.textContent = 'X: ' + (s.controlX || 0);
+    if (expoLabelY) expoLabelY.textContent = 'Y: ' + (s.controlY || 0);
+
+    // Индикатор активности стика
     const act = document.getElementById('joy-active');
     if (act) act.style.color = s.controlActive ? '#FF6A00' : '#555';
+
+    // Статус управления (рядом с индикатором)
+    if (ctrlStatus) {
+      ctrlStatus.textContent = s.controlActive ? 'TX' : '';
+    }
   });
-  
+
+  // Визуализация моторных баров (панель Motors)
+  const motorEls = {
+    fl: { bar: document.getElementById('bar-fl'), val: document.getElementById('val-fl') },
+    fr: { bar: document.getElementById('bar-fr'), val: document.getElementById('val-fr') },
+    rl: { bar: document.getElementById('bar-rl'), val: document.getElementById('val-rl') },
+    rr: { bar: document.getElementById('bar-rr'), val: document.getElementById('val-rr') },
+  };
+
+  store.subscribe('controlMotors', (s) => {
+    // controlMotors = [fl, fr, rl, rr] из OSD
+    const m = s.controlMotors || [0, 0, 0, 0];
+    const names = ['fl', 'fr', 'rl', 'rr'];
+    names.forEach((n, i) => {
+      const pwm = m[i] || 0;
+      if (motorEls[n].val) motorEls[n].val.textContent = pwm;
+      if (motorEls[n].bar) motorEls[n].bar.style.width = (Math.abs(pwm) / 255 * 100) + '%';
+    });
+  });
+
   // ── 8. Finish Init ─────────────────────────────────────────
-  
-  const loader = document.getElementById('video-overlay');
-  if (loader) {
-    loader.classList.remove('visible');
-  }
-  
+
   window.uiLogger.success('Система готова');
 });

@@ -136,10 +136,12 @@ window.AppDefaults = {
   // 📦 Runtime-заглушки (будут переопределены в state.js)
   // ═══════════════════════════════════════════════════════════
   
+  isOnline: null,
+  controlError: false,
   controlX: 0,
   controlY: 0,
   controlActive: false,
-  controlMotors: [0, 0],
+  controlMotors: [0, 0, 0, 0],
   ledState: false,
   isStreaming: false,
   isWebcamActive: false,

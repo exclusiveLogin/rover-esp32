@@ -84,8 +84,11 @@ class OSDController {
       if (!res.ok) throw new Error('Status error');
       const data = await res.json();
       this.render(data);
+
+      if (!this.store.isOnline) this.store.set('isOnline', true);
     } catch (e) {
       if (this.els.rssiVal) this.els.rssiVal.textContent = '-';
+      if (this.store.isOnline) this.store.set('isOnline', false);
     }
   }
 
@@ -130,7 +133,10 @@ class OSDController {
     }
     if (this.els.cpuVal && data.cpu !== undefined) this.els.cpuVal.textContent = data.cpu;
     if (this.els.clientsVal && data.clients !== undefined) this.els.clientsVal.textContent = data.clients;
-    if (this.els.ledVal && data.led !== undefined) this.els.ledVal.textContent = data.led ? 'ON' : 'OFF';
+    if (this.els.ledVal && data.led !== undefined) {
+      this.els.ledVal.textContent = data.led ? 'ON' : 'OFF';
+      this.store.set('ledState', !!data.led);
+    }
 
     // Моторы (PWM значения по каналам)
     if (data.motors) {
@@ -138,6 +144,12 @@ class OSDController {
       if (this.els.motorFR) this.els.motorFR.textContent = data.motors.fr || 0;
       if (this.els.motorRL) this.els.motorRL.textContent = data.motors.rl || 0;
       if (this.els.motorRR) this.els.motorRR.textContent = data.motors.rr || 0;
+
+      // Пишем в стейт для подписчиков (панель Motors с барами)
+      this.store.set('controlMotors', [
+        data.motors.fl || 0, data.motors.fr || 0,
+        data.motors.rl || 0, data.motors.rr || 0
+      ]);
     }
 
     // ── Info Panel (боковая панель с доп. данными) ──
