@@ -200,6 +200,15 @@ void controlSetXY(int16_t x, int16_t y) {
         rightSpeed = (int16_t)(rightSpeed * scale);
     }
     
+    // --- Программная инверсия сторон (config.h) ---
+    // Применяется ПОСЛЕ микшера, чтобы не ломать tankToXY ↔ XY преобразование
+    #if MOTOR_INVERT_LEFT
+    leftSpeed = -leftSpeed;
+    #endif
+    #if MOTOR_INVERT_RIGHT
+    rightSpeed = -rightSpeed;
+    #endif
+    
     // --- Применяем к моторам ---
     // Положительные значения — вперёд (FL, FR)
     // Отрицательные значения — назад (RL, RR)
@@ -210,7 +219,7 @@ void controlSetXY(int16_t x, int16_t y) {
         driveSetSpeed(MOTOR_RL, 0);
     } else {
         driveSetSpeed(MOTOR_FL, 0);
-        driveSetSpeed(MOTOR_RL, (uint8_t)(-leftSpeed));  // Инвертируем знак
+        driveSetSpeed(MOTOR_RL, (uint8_t)(-leftSpeed));
     }
     
     // Правая сторона (FR для вперёд, RR для назад)
@@ -219,7 +228,7 @@ void controlSetXY(int16_t x, int16_t y) {
         driveSetSpeed(MOTOR_RR, 0);
     } else {
         driveSetSpeed(MOTOR_FR, 0);
-        driveSetSpeed(MOTOR_RR, (uint8_t)(-rightSpeed));  // Инвертируем знак
+        driveSetSpeed(MOTOR_RR, (uint8_t)(-rightSpeed));
     }
     
     // Отладка (раскомментировать для проверки)
@@ -228,11 +237,13 @@ void controlSetXY(int16_t x, int16_t y) {
         driveGetSpeed(MOTOR_FL), driveGetSpeed(MOTOR_FR),
         driveGetSpeed(MOTOR_RL), driveGetSpeed(MOTOR_RR));
     
-    // Сохраняем примерное направление для отладки
-    if (abs(y) > abs(x)) {
-        state.direction = (y > 0) ? CTRL_FORWARD : CTRL_BACKWARD;
+    // Определяем направление по финальным скоростям (после инверсии)
+    int16_t effectiveY = (leftSpeed + rightSpeed) / 2;
+    int16_t effectiveX = (leftSpeed - rightSpeed) / 2;
+    if (abs(effectiveY) > abs(effectiveX)) {
+        state.direction = (effectiveY > 0) ? CTRL_FORWARD : CTRL_BACKWARD;
     } else {
-        state.direction = (x > 0) ? CTRL_RIGHT : CTRL_LEFT;
+        state.direction = (effectiveX > 0) ? CTRL_RIGHT : CTRL_LEFT;
     }
     state.speed = (uint8_t)max(abs(leftSpeed), abs(rightSpeed));
 }

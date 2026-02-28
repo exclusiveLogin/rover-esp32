@@ -31,6 +31,8 @@ class ControlService {
     this.pending           = false; // true пока ждём ответ от сервера (защита от параллельных запросов)
     this.consecutiveErrors = 0;     // счётчик подряд идущих ошибок (для backoff)
     this._wasActive        = false; // предыдущее состояние стика (для detect press/release)
+    this._prevX            = 0;     // предыдущее значение X (для detect partial release)
+    this._prevY            = 0;     // предыдущее значение Y
 
     // Подписка на изменения управления в стейте
     this.store.subscribe(['controlX', 'controlY', 'controlActive'], () => this._onStateChange());
@@ -44,6 +46,8 @@ class ControlService {
    */
   _onStateChange() {
     const active = this.store.controlActive;
+    const x = this.store.controlX || 0;
+    const y = this.store.controlY || 0;
 
     // Стик нажат (было неактивно → стало активно): запускаем heartbeat
     if (active && !this._wasActive) {
@@ -53,16 +57,30 @@ class ControlService {
     // Стик отпущен (было активно → стало неактивно): стоп-команда
     if (!active && this._wasActive) {
       this._stopHeartbeat();
-      this._sendNow(0, 0);     // Немедленная остановка моторов
+      this._sendNow(0, 0);
       this._wasActive = false;
+      this._prevX = 0;
+      this._prevY = 0;
       return;
     }
 
     this._wasActive = active;
 
-    // Стик активен — отправляем с троттлингом
     if (active) {
-      this._throttledSend();
+      // Если ось обнулилась (один стик отпущен, другой зажат) —
+      // отправляем немедленно, не через throttle
+      const axisReleased =
+        (this._prevX !== 0 && x === 0) ||
+        (this._prevY !== 0 && y === 0);
+
+      this._prevX = x;
+      this._prevY = y;
+
+      if (axisReleased) {
+        this._sendNow(x, y);
+      } else {
+        this._throttledSend();
+      }
     }
   }
 

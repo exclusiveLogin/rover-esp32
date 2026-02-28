@@ -131,8 +131,10 @@ class OSDController {
     if (this.els.psramVal && data.psram !== undefined) {
       this.els.psramVal.textContent = Math.round(data.psram / 1024) + ' KB';
     }
-    if (this.els.cpuVal && data.cpu !== undefined) this.els.cpuVal.textContent = data.cpu;
-    if (this.els.clientsVal && data.clients !== undefined) this.els.clientsVal.textContent = data.clients;
+    const cpu = data.cpu_mhz ?? data.cpu;
+    if (this.els.cpuVal && cpu !== undefined) this.els.cpuVal.textContent = cpu;
+    const clients = data.stream_clients ?? data.clients;
+    if (this.els.clientsVal && clients !== undefined) this.els.clientsVal.textContent = clients;
     if (this.els.ledVal && data.led !== undefined) {
       this.els.ledVal.textContent = data.led ? 'ON' : 'OFF';
       this.store.set('ledState', !!data.led);
@@ -157,8 +159,8 @@ class OSDController {
     if (this.els.infoRssi && data.rssi !== undefined) this.els.infoRssi.textContent = data.rssi;
     if (this.els.infoUptime && data.uptime !== undefined) this.els.infoUptime.textContent = this.formatUptime(data.uptime);
     if (this.els.infoHeap && data.heap !== undefined) this.els.infoHeap.textContent = Math.round(data.heap / 1024) + ' KB';
-    if (this.els.infoCpu && data.cpu !== undefined) this.els.infoCpu.textContent = data.cpu + ' MHz';
-    if (this.els.infoClients && data.clients !== undefined) this.els.infoClients.textContent = data.clients;
+    if (this.els.infoCpu && cpu !== undefined) this.els.infoCpu.textContent = cpu + ' MHz';
+    if (this.els.infoClients && clients !== undefined) this.els.infoClients.textContent = clients;
   }
 
   /**

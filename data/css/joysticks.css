@@ -228,9 +228,13 @@
 .control-status.error   { color: var(--error); }
 .control-status.pending { color: var(--warning); }
 
-/* Single joystick mode */
+/* ── Single joystick mode ── */
 .joysticks-overlay.single-mode {
   justify-content: center;
+}
+
+.joysticks-overlay.single-mode .joystick-wrapper.left {
+  display: none;
 }
 
 .joysticks-overlay.single-mode .joystick-wrapper.right .joystick-area {
@@ -267,4 +271,22 @@
   right: 15%;
   height: 2px;
   transform: translateY(-50%);
+}
+
+/* ── Tank joystick mode ── */
+.joysticks-overlay.tank-mode .joystick-rail.horizontal {
+  display: none;
+}
+
+.joysticks-overlay.tank-mode .joystick-wrapper.right .joystick-base::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 15%;
+  bottom: 15%;
+  width: 4px;
+  background: rgba(255, 106, 0, 0.2);
+  border-radius: 4px;
+  transform: translateX(-50%);
+  pointer-events: none;
 }

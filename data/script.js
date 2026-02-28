@@ -100,6 +100,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
   
+  const rightAxisIcon = document.querySelector('.joystick-wrapper.right .axis-icon');
+  const rightAxisName = document.querySelector('.joystick-wrapper.right .axis-name');
+  const leftAxisName  = document.querySelector('.joystick-wrapper.left .axis-name');
+
   store.subscribe('joystickMode', (s) => {
     document.querySelectorAll('[data-mode]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.mode === s.joystickMode);
@@ -107,7 +111,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     const overlay = document.getElementById('joysticks-overlay');
     if (overlay) {
       overlay.classList.toggle('single-mode', s.joystickMode === 'single');
+      overlay.classList.toggle('tank-mode', s.joystickMode === 'tank');
     }
+
+    // Обновить лейблы осей по режиму
+    if (s.joystickMode === 'tank') {
+      if (rightAxisIcon) rightAxisIcon.textContent = 'Y';
+      if (rightAxisName) rightAxisName.textContent = 'ПРАВ';
+      if (leftAxisName)  leftAxisName.textContent  = 'ЛЕВ';
+    } else if (s.joystickMode === 'single') {
+      if (rightAxisIcon) rightAxisIcon.textContent = 'XY';
+      if (rightAxisName) rightAxisName.textContent = 'ВСЕ';
+    } else {
+      if (rightAxisIcon) rightAxisIcon.textContent = 'X';
+      if (rightAxisName) rightAxisName.textContent = 'РУЛЬ';
+      if (leftAxisName)  leftAxisName.textContent  = 'ГАЗ';
+    }
+
+    // Сбросить стики при смене режима
+    sticks.release('left');
+    sticks.release('right');
   });
   
   // Settings: Sliders & Toggles
