@@ -81,7 +81,7 @@ class StateBinder {
         }
       }
     });
-  },
+  }
 
   /**
    * Привязать чекбокс или кнопку-тоггл (boolean).
@@ -109,7 +109,7 @@ class StateBinder {
       if (isCheckbox) el.checked = newVal;
       else el.classList.toggle('active', newVal);
     });
-  },
+  }
 
   /**
    * Привязать текстовое поле (input/textarea) или span/div.
@@ -139,7 +139,7 @@ class StateBinder {
       if (isInput) el.value = newVal;
       else el.textContent = newVal;
     });
-  },
+  }
 
   /**
    * Привязать группу радио-кнопок (input[type=radio] с общим name).
@@ -165,7 +165,7 @@ class StateBinder {
         if (r.value === newVal) r.checked = true;
       });
     });
-  },
+  }
 
   /**
    * Привязать действие к кнопке (без привязки к стейту).
@@ -173,7 +173,7 @@ class StateBinder {
   button(id, onClick) {
     const el = this._el(id);
     if (el) el.addEventListener('click', onClick);
-  },
+  }
 
   /**
    * Привязать CSS-класс к значению ключа.
