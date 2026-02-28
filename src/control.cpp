@@ -185,10 +185,10 @@ void controlSetXY(int16_t x, int16_t y) {
     state.active = true;
     
     // --- Микширование для skid-steer ---
-    // leftSpeed  = Y + X  (положительный X поворачивает вправо → левая сторона быстрее)
-    // rightSpeed = Y - X
-    int16_t leftSpeed  = y + x;
-    int16_t rightSpeed = y - x;
+    // Стандарт: left = Y+X, right = Y-X (X>0 → вправо)
+    // При MOTOR_INVERT поворот зеркалится → меняем знак X между сторонами
+    int16_t leftSpeed  = y - x;
+    int16_t rightSpeed = y + x;
     
     // Нормализация: если значения выходят за 255, масштабируем
     // Важно: сохраняем знак при нормализации!

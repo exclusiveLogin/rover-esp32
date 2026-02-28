@@ -54,7 +54,7 @@
 #define PWM_PIN_RL      13
 #define PWM_PIN_RR      14
 
-#define PWM_FREQ        5000
+#define PWM_FREQ        20000
 #define PWM_RESOLUTION  8
 #define PWM_MAX_DUTY    255
 
@@ -72,6 +72,7 @@
 #define SERVO_DEFAULT   90   // Начальный угол при старте
 #define SERVO_DEADZONE  3    // Мёртвая зона (°): разница < 3° — игнорируем, гасит дребезг
 #define SERVO_IDLE_MS   500  // Через сколько мс после остановки снять PWM (тишина, 0 = не снимать)
+#define SERVO_INVERT    1    // Инверсия: 0°↔180° (если серва крутится зеркально)
 
 // --- HTTP серверы ---
 #define HTTP_PORT_MAIN   80
@@ -82,8 +83,6 @@
 #define CONTROL_DEADZONE     20    // Мёртвая зона джойстика (игнорируем малые отклонения)
 
 // Инверсия моторов (1 = поменять вперёд/назад для стороны)
-// Если при Y>0 ровер едет назад — включи ОБА флага
-// Если одна сторона едет не туда — включи только её
 #define MOTOR_INVERT_LEFT    1     // Инверсия левой стороны (FL ↔ RL)
 #define MOTOR_INVERT_RIGHT   1     // Инверсия правой стороны (FR ↔ RR)
 

@@ -43,6 +43,9 @@ static bool s_pwmActive = false;                     // true = PWM сигнал 
 static void applyAngle(float angle) {
     if (angle < 0) angle = 0;
     if (angle > 180) angle = 180;
+#if SERVO_INVERT
+    angle = 180.0f - angle;  // 0°↔180° зеркально
+#endif
     int pulseUs = SERVO_MIN_US + (SERVO_MAX_US - SERVO_MIN_US) * (int)angle / 180;  // Ширина импульса (мкс)
     uint32_t duty = (uint32_t)pulseUs * 65536UL / SERVO_PERIOD_US;  // Duty для 16-bit LEDC
     ledcWrite(SERVO_CHANNEL, (uint32_t)duty);
