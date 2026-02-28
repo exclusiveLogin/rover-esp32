@@ -240,7 +240,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const servoValue  = document.getElementById('servo-pan-value');
   const sendServo = RoverMath.debounce((val) => {
     fetch(store.getApiUrl('/api/servo'), {
-      method: 'POST', body: new URLSearchParams({ angle: val })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deg: parseInt(val), speed: store.servoPanSpeed || 80 })
     }).catch(e => window.uiLogger?.error('Servo: ' + e.message));
   }, 100);
 
@@ -255,7 +257,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctrl.querySelectorAll('.btn-motor').forEach(btn => {
       btn.addEventListener('click', () => {
         fetch(store.getApiUrl('/api/drive'), {
-          method: 'POST', body: new URLSearchParams({ motor, action: btn.dataset.action })
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ motor, action: btn.dataset.action })
         }).catch(e => window.uiLogger?.error('Drive: ' + e.message));
       });
     });
@@ -263,7 +267,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('stop-all')?.addEventListener('click', () => {
     fetch(store.getApiUrl('/api/drive'), {
-      method: 'POST', body: new URLSearchParams({ action: 'stop' })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop', motor: 'all' })
     }).catch(e => window.uiLogger?.error('Stop: ' + e.message));
   });
 

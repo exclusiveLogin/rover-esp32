@@ -127,13 +127,17 @@ class ControlService {
                    this.store.getApiUrl(window.AppDefaults.CONTROL_API) :
                    '/api/control';
 
-    const payload = new URLSearchParams();
-    payload.append('x', Math.round(x));
-    payload.append('y', Math.round(y));
+    // ESP32 ожидает JSON: { "type": "xy", "x": -255..255, "y": -255..255 }
+    const payload = JSON.stringify({
+      type: 'xy',
+      x: Math.round(x),
+      y: Math.round(y)
+    });
 
     try {
       const res = await fetch(apiUrl, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: payload,
       });
 
