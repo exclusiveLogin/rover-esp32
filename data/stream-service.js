@@ -13,13 +13,25 @@
  * Здесь мы используем fetch + ReadableStream:
  *   - reader.read() кидает исключение при ЛЮБОМ обрыве
  *   - Мы сами парсим JPEG-фреймы по маркерам SOI/EOI
- *   - Рендерим через Blob URL → img.src (быстро, без сети)
+ *   - Рендерим через createImageBitmap → canvas (без blob URL)
  *   - Полный контроль: retry, backoff, FPS throttle
+ *
+ * Рендер через Canvas (а не Blob URL):
+ * ─────────────────────────────────────
+ * Blob URL (createObjectURL) создаёт запись в реестре браузера
+ * на каждый кадр. Даже с revokeObjectURL — DevTools кэширует
+ * декодированные изображения, реестр растёт.
+ *
+ * createImageBitmap + canvas.drawImage:
+ *   - Ноль записей в реестре URL
+ *   - bitmap.close() немедленно освобождает GPU/RAM
+ *   - Canvas совместим с drawImage() в CV/Motion процессорах
  *
  * Публичный API:
  *   start()  — подключиться (или переподключиться)
  *   stop()   — отключиться, очистить ретраи
  *   active   — getter, идёт ли стрим
+ *   canvas   — getter, <canvas> элемент (для CV/Compositor как источник)
  *
  * Конфиг (из AppState / config.js):
  *   streamMaxRetries  — макс. попыток переподключения (def: 5)
@@ -33,21 +45,34 @@
 class StreamService {
 
   /**
-   * @param {Object} store - AppState (SSOT)
-   * @param {HTMLImageElement} imgEl - <img> куда рендерим кадры
+   * @param {Object} store  - AppState (SSOT)
+   * @param {HTMLCanvasElement|HTMLImageElement} targetEl
+   *   Элемент куда рендерим. Если <canvas> — рисуем напрямую.
+   *   Если <img> — автоматически создаём скрытый <canvas> рядом.
    */
-  constructor(store, imgEl) {
+  constructor(store, targetEl) {
     this.store = store;
-    this.img   = imgEl;
 
-    this._ctrl       = null;   // AbortController для fetch (отмена запроса)
-    this._blobUrl    = null;   // Текущий Blob URL (один кадр в памяти)
+    // Если передан <img>, заменяем его на <canvas> с теми же атрибутами
+    if (targetEl.tagName === 'IMG') {
+      this._canvas = document.createElement('canvas');
+      this._canvas.id = targetEl.id;
+      this._canvas.className = targetEl.className;
+      this._canvas.style.cssText = targetEl.style.cssText;
+      targetEl.replaceWith(this._canvas);
+    } else {
+      this._canvas = targetEl;
+    }
+
+    this._ctx        = this._canvas.getContext('2d');
+    this._ctrl       = null;   // AbortController для fetch
     this._retries    = 0;      // Счётчик попыток переподключения
     this._retryTimer = null;   // setTimeout ID для retry
     this._running    = false;  // Флаг активности стрима
   }
 
   get active() { return this._running; }
+  get canvas() { return this._canvas; }
 
   // ── Public ────────────────────────────────────────────────
 
@@ -104,9 +129,8 @@ class StreamService {
       this._ctrl = null;
     }
 
-    // Освобождаем память от последнего кадра
-    this._revokeBlob();
-    this.img.removeAttribute('src');
+    // Очищаем canvas (чёрный/прозрачный)
+    this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
   }
 
   // ── Frame reader ──────────────────────────────────────────
@@ -115,9 +139,8 @@ class StreamService {
    * Основной цикл чтения потока.
    *
    * reader.read() возвращает чанки сырых байт (Uint8Array).
-   * MJPEG — это последовательность JPEG-файлов, разделённых
-   * HTTP multipart boundary. Но нам не нужно парсить boundary —
-   * мы ищем JPEG-маркеры напрямую:
+   * MJPEG — это последовательность JPEG-файлов.
+   * Мы ищем JPEG-маркеры напрямую:
    *   SOI (Start Of Image): 0xFF 0xD8
    *   EOI (End Of Image):   0xFF 0xD9
    *
@@ -136,7 +159,7 @@ class StreamService {
       buf = this._append(buf, value);
 
       // Пытаемся извлечь JPEG-кадр из буфера
-      buf = this._extractFrame(buf);
+      buf = await this._extractFrame(buf);
 
       // Защита от утечки памяти: если буфер вырос слишком большим
       // (например, битые данные без EOI), обрезаем начало
@@ -153,14 +176,12 @@ class StreamService {
    * 1. Сканируем байты попарно
    * 2. Запоминаем последний найденный SOI (0xFF 0xD8)
    * 3. Когда находим EOI (0xFF 0xD9) после SOI — вырезаем кадр
-   * 4. Возвращаем остаток буфера (после EOI)
-   *
-   * Если кадр не найден — буфер возвращается как есть,
-   * ждём следующий чанк для дополнения.
+   * 4. Рендерим через createImageBitmap → canvas
+   * 5. Возвращаем остаток буфера (после EOI)
    *
    * @returns {Uint8Array} Остаток буфера после извлечения кадра
    */
-  _extractFrame(buf) {
+  async _extractFrame(buf) {
     let soi = -1; // позиция начала JPEG (Start Of Image)
 
     for (let i = 0; i < buf.length - 1; i++) {
@@ -171,7 +192,7 @@ class StreamService {
       // EOI маркер: FF D9 (конец JPEG)
       if (soi >= 0 && buf[i] === 0xFF && buf[i + 1] === 0xD9) {
         // Нашли полный кадр: от soi до i+2 (включая EOI)
-        this._renderFrame(buf.slice(soi, i + 2));
+        await this._renderFrame(buf.slice(soi, i + 2));
         // Возвращаем всё, что после этого кадра
         return buf.slice(i + 2);
       }
@@ -182,31 +203,28 @@ class StreamService {
   }
 
   /**
-   * Рендер одного JPEG-кадра.
+   * Рендер одного JPEG-кадра через createImageBitmap.
    *
-   * Blob — это объект в RAM (не файл на диске).
-   * createObjectURL даёт ему временный адрес "blob:http://...".
-   * img.src = blobUrl — браузер рендерит из памяти, без сети.
+   * Blob → createImageBitmap (декодирование в GPU-текстуру)
+   * → canvas.drawImage (отрисовка)
+   * → bitmap.close() (немедленное освобождение памяти)
    *
-   * Перед созданием нового Blob обязательно revokeObjectURL
-   * предыдущего — иначе утечка памяти (по 10-50 КБ на кадр).
+   * Никаких blob URL, никакого реестра, ноль мусора в DevTools.
    */
-  _renderFrame(jpeg) {
-    this._revokeBlob();
-    this._blobUrl = URL.createObjectURL(
-      new Blob([jpeg], { type: 'image/jpeg' })
-    );
-    this.img.src = this._blobUrl;
-  }
+  async _renderFrame(jpeg) {
+    const blob = new Blob([jpeg], { type: 'image/jpeg' });
+    const bitmap = await createImageBitmap(blob);
 
-  /**
-   * Освободить память предыдущего кадра.
-   */
-  _revokeBlob() {
-    if (this._blobUrl) {
-      URL.revokeObjectURL(this._blobUrl);
-      this._blobUrl = null;
+    // Подгоняем размер canvas под кадр (один раз или при смене разрешения)
+    if (this._canvas.width !== bitmap.width || this._canvas.height !== bitmap.height) {
+      this._canvas.width  = bitmap.width;
+      this._canvas.height = bitmap.height;
     }
+
+    this._ctx.drawImage(bitmap, 0, 0);
+
+    // Немедленно освобождаем GPU/RAM — не ждём GC
+    bitmap.close();
   }
 
   // ── Retry с exponential backoff ───────────────────────────

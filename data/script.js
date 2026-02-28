@@ -177,24 +177,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 2000);
   };
   
-  // ── 3. Scene Service (CV, Motion, Compositor, Layers) ──────
-  const img = document.getElementById('video-feed');
+  // ── 3. Stream (создаём до SceneService — заменяет <img> на <canvas>) ──
+  const stream = new StreamService(store, document.getElementById('video-feed'));
+  const videoCanvas = stream.canvas; // <canvas id="video-feed">
 
+  // ── 4. Scene Service (CV, Motion, Compositor, Layers) ──────
   const scene = new SceneService(store, {
-    videoFeed: img,
+    videoFeed: videoCanvas,
     videoLocal: document.getElementById('video-local'),
     overlayCanvas: document.getElementById('compositor-overlay'),
     videoContainer: document.querySelector('.video-container'),
   });
 
-  // Кнопки процессоров
   document.getElementById('cv-btn').addEventListener('click', () => scene.toggleCV());
   document.getElementById('motion-btn').addEventListener('click', () => scene.toggleMotion());
   document.getElementById('base-layer-btn').addEventListener('click', () => scene.toggleBaseLayer());
   document.getElementById('webcam-btn').addEventListener('click', () => scene.toggleWebcam());
   document.getElementById('photo-btn').addEventListener('click', () => scene.takePhoto());
 
-  // Слои — делегация кликов
   document.querySelectorAll('.layer-tile').forEach(tile => {
     tile.addEventListener('click', (e) => {
       if (e.target.closest('.layer-eye-btn')) return;
@@ -208,19 +208,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // ── 4. Stream & LED ────────────────────────────────────────
+  // ── 5. Stream toggle & LED ────────────────────────────────
   const streamToggle = document.getElementById('stream-toggle');
-  const stream = new StreamService(store, img);
 
   store.subscribe('isStreaming', (s) => {
     if (s.isStreaming) {
       stream.start();
-      img.classList.remove('hidden');
+      videoCanvas.classList.remove('hidden');
       streamToggle.classList.add('active');
       streamToggle.querySelector('.icon').textContent = '⏹';
     } else {
       stream.stop();
-      img.classList.add('hidden');
+      videoCanvas.classList.add('hidden');
       streamToggle.classList.remove('active');
       streamToggle.querySelector('.icon').textContent = '▶';
     }

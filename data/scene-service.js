@@ -134,11 +134,35 @@ class SceneService {
     }
   }
 
+  /**
+   * Запросить одиночный JPEG с ESP32 и отрисовать на videoFeed canvas.
+   * ESP32 отдаёт image/jpeg по GET /photo.
+   */
   async takePhoto() {
     try {
       const url = this.store.getApiUrl(this.store.PHOTO_API || '/photo');
-      window.open(url, '_blank');
-      window.uiLogger?.info('Фото запрошено');
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+
+      const blob = await res.blob();
+      const bitmap = await createImageBitmap(blob);
+
+      // Рисуем на видео-canvas (тот же элемент, что и стрим)
+      const canvas = this.videoFeed;
+      const ctx = canvas.getContext('2d');
+
+      if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+        canvas.width  = bitmap.width;
+        canvas.height = bitmap.height;
+      }
+
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
+      // Показываем canvas если был скрыт
+      canvas.classList.remove('hidden');
+
+      window.uiLogger?.success('Фото получено');
     } catch (e) {
       window.uiLogger?.error('Фото: ' + e.message);
     }
