@@ -31,7 +31,7 @@ window.AppDefaults = {
   STREAM_PATH: '/stream',
 
   // MJPEG Proxy (обход CORS, только через dev-server)
-  USE_PROXY: true,
+  USE_PROXY: false,
 
   // Полный URL внешнего стрима (для proxy)
   EXTERNAL_STREAM_URL: 'http://192.168.31.135:8080/',
